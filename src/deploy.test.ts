@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -76,7 +77,73 @@ describe("runDeploy", () => {
     const m = mockFetch(() => json({ deployment: { id: "dep_9" } }));
     const out = await runDeploy(new ApiClient({ apiUrl: "https://api.test", token: "rvt_t", fetch: m.fetch }), { dir, wait: false, project: "named" });
     expect(out).toMatchObject({ kind: "started", deploymentId: "dep_9", project: { slug: "named" } });
-    expect(m.calls).toHaveLength(1);
+    // API without incremental upload (no manifestId in the answer): one probe, then the full tarball
+    expect(m.calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "POST https://api.test/v1/projects/named/uploads/manifest",
+      "POST https://api.test/v1/projects/named/deployments",
+    ]);
+    expect((m.calls[1].body as FormData).get("source")).toBeTruthy();
+  });
+
+  it("incremental upload: sends a manifest, uploads only missing files, then JSON when nothing changed", async () => {
+    const dir = await makeTree({ "a.txt": "same", "b.txt": "changed", ".env": "SECRET=1", "node_modules/x/i.js": "x" });
+    const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+    let manifest: { files: Array<{ path: string; sha256: string }> } | null = null;
+    let missing = [sha("changed")];
+    let blobNames: string[] = [];
+    const m = mockFetch(async (req) => {
+      if (req.url.endsWith("/uploads/manifest")) {
+        manifest = JSON.parse(String(req.body));
+        return json({ manifestId: "f".repeat(32), missing });
+      }
+      if (req.method === "POST") {
+        if (req.body instanceof FormData) blobNames = await tarEntries(new Uint8Array(await (req.body.get("blobs") as File).arrayBuffer()));
+        return json({ deploymentId: "dep_i" }, 202);
+      }
+      return json({ status: "queued" });
+    });
+    const client = new ApiClient({ apiUrl: "https://api.test", token: "rvt_t", fetch: m.fetch });
+    const events: ProgressEvent[] = [];
+    const out = await runDeploy(client, { dir, wait: false, clean: true, onProgress: (e) => events.push(e) });
+    expect(out.kind).toBe("started");
+    expect(manifest!.files.map((f) => f.path)).toEqual(["a.txt", "b.txt"]);
+    expect(manifest!.files[0]!.sha256).toBe(sha("same"));
+    const form = m.calls[1].body as FormData;
+    expect(form.get("manifest")).toBe("f".repeat(32));
+    expect(form.get("clean")).toBe("true");
+    expect(form.get("source")).toBeNull();
+    expect(blobNames).toEqual([sha("changed")]);
+    expect(events.find((e) => e.type === "packed")).toMatchObject({ files: 2, changed: 1 });
+    expect(out.pack.uploadedFiles).toBe(1);
+
+    missing = [];
+    await runDeploy(client, { dir, wait: false });
+    const last = m.calls[m.calls.length - 1];
+    expect(last.url).toBe("https://api.test/v1/projects/proj/deployments");
+    expect(JSON.parse(String(last.body))).toEqual({ manifest: "f".repeat(32), dry_run: false, wait: false });
+  });
+
+  it("falls back to the tarball on APIs without the manifest route (404) and passes clean", async () => {
+    const dir = await makeTree({ "a.txt": "x" });
+    const m = mockFetch((req) => {
+      if (req.url.endsWith("/uploads/manifest")) return json({ status: "failed", code: "route_not_found", cause: "nope", fix: "x" }, 404);
+      return json({ deploymentId: "d" }, 202);
+    });
+    await runDeploy(new ApiClient({ apiUrl: "https://api.test", token: "rvt_t", fetch: m.fetch }), { dir, wait: false, clean: true });
+    const form = m.calls[1].body as FormData;
+    expect(form.get("source")).toBeTruthy();
+    expect(form.get("clean")).toBe("true");
+  });
+
+  it("long-polls the deployment status", async () => {
+    const dir = await makeTree({ "a.txt": "x" });
+    const m = mockFetch((req) => {
+      if (req.method === "POST") return json({ deploymentId: "d" });
+      if (req.url.includes("/logs")) return json([]);
+      return json({ status: "live", deploymentId: "d", urls: {} });
+    });
+    await runDeploy(new ApiClient({ apiUrl: "https://api.test", token: "rvt_t", fetch: m.fetch }), { dir, sleep: noSleep, incremental: false });
+    expect(m.calls.some((c) => c.url === "https://api.test/v1/deployments/d?wait=2")).toBe(true);
   });
 
   it("synthesises a failed result when the API reports failure without one", async () => {

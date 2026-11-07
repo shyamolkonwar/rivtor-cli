@@ -37,14 +37,19 @@ rivtor deploy --dry-run         # print the detected plan; nothing is deployed
 rivtor deploy --env-file .env.production   # send these variables with the deploy
 rivtor deploy --no-wait         # start and exit right away
 rivtor deploy --json            # print the raw DeployResult (for scripts and agents)
+rivtor deploy --clean           # rebuild everything from scratch, without build/dependency caches
 ```
+
+Redeploys upload only the files that changed: the CLI sends a list of file hashes, and the API asks
+for the files it doesn't have yet. Dependencies are cached per account and reused until a lockfile,
+the runtime version or the build env changes. Use `--clean` if a cached dependency ever looks stale.
 
 What gets uploaded:
 
 - Files are packed according to your `.gitignore` files (nested ones too) and an optional `.rivtorignore`.
 - `node_modules`, `.git`, build outputs (`dist`, `build`, `out`, `.next`, ...), virtualenvs and caches are skipped.
 - **`.env` files are never uploaded**, even if your `.gitignore` allows them. Only `.env.example`, `.env.sample` and `.env.template` are uploaded, so Rivtor can see which variable names your app expects. To send secret values, use `--env-file` or `rivtor env set`.
-- The upload limit is 300 MB compressed.
+- The upload limit is 300 MB compressed (for a redeploy: the changed files only).
 
 The project name comes from `--project <slug>`, then from `rivtor.json` (`{ "project": "my-app" }`), then from the folder name. After the first deploy the CLI writes `rivtor.json` so later deploys go to the same project.
 
@@ -57,7 +62,7 @@ Exit codes: `0` live, `1` failed, `2` needs input (for example a missing secret)
 | `rivtor login [--token <t>]`                                                                      | Save an API token                                                 |
 | `rivtor logout`                                                                                   | Remove the saved token                                            |
 | `rivtor whoami`                                                                                   | Show the logged-in account and plan                               |
-| `rivtor deploy [path] [--project] [--dry-run] [--json] [--no-wait] [--env-file]`                  | Deploy a folder                                                   |
+| `rivtor deploy [path] [--project] [--dry-run] [--json] [--no-wait] [--env-file] [--clean]`        | Deploy a folder                                                   |
 | `rivtor status [project]`                                                                         | Services, URLs, data services and the last deploy                 |
 | `rivtor projects`                                                                                 | List your projects                                                |
 | `rivtor logs [project] [--service] [--since 1h] [--level error] [--raw] [--build <deploymentId>]` | Runtime logs, or a deployment's build log                         |

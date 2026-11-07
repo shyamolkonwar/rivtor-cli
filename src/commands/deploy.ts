@@ -22,7 +22,11 @@ export class ProgressPrinter {
   handle = (ev: ProgressEvent): void => {
     switch (ev.type) {
       case "packed":
-        this.println(`${pc.dim("•")} packed ${ev.files} files ${pc.dim(`(${formatBytes(ev.bytes)})`)}`);
+        this.println(
+          ev.changed === undefined
+            ? `${pc.dim("•")} packed ${ev.files} files ${pc.dim(`(${formatBytes(ev.bytes)})`)}`
+            : `${pc.dim("•")} ${ev.files} files, ${ev.changed} changed ${pc.dim(`(${formatBytes(ev.bytes)} to upload)`)}`,
+        );
         break;
       case "uploading":
         this.println(`${pc.dim("•")} uploading to ${pc.bold(ev.project)}`);
@@ -95,8 +99,9 @@ export function registerDeploy(program: Command): void {
     .option("--json", "print the raw DeployResult JSON")
     .option("--no-wait", "start the deployment and exit without waiting")
     .option("--env-file <file>", "send variables from a dotenv file with this deploy")
+    .option("--clean", "rebuild every service from scratch, without build or dependency caches")
     .action(
-      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string }) => {
+      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string; clean?: boolean }) => {
         const client = await getClient();
         let env: Record<string, string> | undefined;
         if (opts.envFile) {
@@ -113,6 +118,7 @@ export function registerDeploy(program: Command): void {
           dryRun: opts.dryRun,
           wait: opts.wait,
           env,
+          clean: opts.clean,
           onProgress: progress?.handle,
         });
 

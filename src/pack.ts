@@ -1,5 +1,6 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
-import { openAsBlob } from "node:fs";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat } from "node:fs/promises";
+import { constants as fsConstants, createReadStream, openAsBlob } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, posix, relative, resolve, sep } from "node:path";
 import ignore, { type Ignore } from "ignore";
@@ -224,4 +225,114 @@ export async function packDir(rootDir: string, opts: PackOptions = {}): Promise<
 export function displayPath(p: string): string {
   const rel = relative(process.cwd(), p);
   return !rel ? "." : rel.startsWith("..") ? p : rel.split(sep).join("/");
+}
+
+// ---- incremental upload ------------------------------------------------------------------
+
+export interface ManifestFile {
+  path: string;
+  sha256: string;
+  size: number;
+  mode: number;
+}
+
+export interface UploadManifest {
+  files: ManifestFile[];
+  symlinks?: Array<{ path: string; target: string }>;
+}
+
+export interface ManifestResult {
+  manifest: UploadManifest;
+  /** uncompressed bytes of all files */
+  rawBytes: number;
+}
+
+function hashFile(file: string): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const h = createHash("sha256");
+    createReadStream(file)
+      .on("data", (c) => h.update(c))
+      .on("error", reject)
+      .on("end", () => resolvePromise(h.digest("hex")));
+  });
+}
+
+/**
+ * Per-file sha256 manifest of exactly the files `packDir` would upload (same ignore rules, `.env*`
+ * never included). Symlinks are listed with their target, like the tarball stores them.
+ */
+export async function manifestDir(rootDir: string, opts: ListOptions = {}): Promise<ManifestResult> {
+  const root = resolve(rootDir);
+  const files = await listFiles(root, opts);
+  if (files.length === 0) {
+    throw new PackError("empty_project", `No files to upload in ${rootDir} (everything is ignored or the folder is empty).`, "Check the path and your .gitignore, then call deploy again.");
+  }
+  const out: ManifestFile[] = new Array(files.length);
+  const symlinks: Array<{ path: string; target: string }> = [];
+  let rawBytes = 0;
+  let next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const i = next++;
+      const rel = files[i]!;
+      const abs = join(root, ...rel.split("/"));
+      const st = await lstat(abs);
+      if (st.isSymbolicLink()) {
+        symlinks.push({ path: rel, target: await readlink(abs) });
+        continue;
+      }
+      rawBytes += st.size;
+      out[i] = { path: rel, sha256: await hashFile(abs), size: st.size, mode: st.mode & 0o777 };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(32, files.length) }, worker));
+  const manifest: UploadManifest = { files: out.filter(Boolean) };
+  if (symlinks.length) manifest.symlinks = symlinks.sort((a, b) => (a.path < b.path ? -1 : 1));
+  return { manifest, rawBytes };
+}
+
+export interface BlobPack {
+  file: string;
+  bytes: number;
+  count: number;
+  blob(): Promise<Blob>;
+  cleanup(): Promise<void>;
+}
+
+/** tar.gz of the files whose hashes the server is missing; each entry is named by its sha256. */
+export async function packBlobs(rootDir: string, manifest: UploadManifest, missing: string[], maxBytes = MAX_UPLOAD_BYTES): Promise<BlobPack> {
+  const root = resolve(rootDir);
+  const want = new Set(missing);
+  const tmp = await mkdtemp(join(tmpdir(), "rivtor-blobs-"));
+  const cleanup = () => rm(tmp, { recursive: true, force: true });
+  try {
+    const stage = join(tmp, "b");
+    await mkdir(stage);
+    const names: string[] = [];
+    for (const f of manifest.files) {
+      if (!want.has(f.sha256)) continue;
+      want.delete(f.sha256);
+      // clone-or-copy, then re-hash the copy so a file edited mid-deploy can't upload mismatched content
+      const dest = join(stage, f.sha256);
+      await copyFile(join(root, ...f.path.split("/")), dest, fsConstants.COPYFILE_FICLONE);
+      if ((await hashFile(dest)) !== f.sha256) {
+        throw new PackError("file_changed", `${f.path} changed while deploying.`, "Wait for your editor/build to finish writing files, then call deploy again.");
+      }
+      names.push(f.sha256);
+    }
+    const file = join(tmp, "blobs.tar.gz");
+    await tarCreate({ gzip: true, cwd: stage, file, portable: true, noDirRecurse: true }, names.length ? names : []);
+    const bytes = (await stat(file)).size;
+    if (bytes > maxBytes) {
+      throw new PackError(
+        "upload_too_large",
+        `Changed files are ${formatMb(bytes)} compressed, over the ${formatMb(maxBytes)} upload limit.`,
+        "Add large files, datasets or build outputs to .gitignore (or .rivtorignore), then call deploy again.",
+      );
+    }
+    return { file, bytes, count: names.length, blob: () => openAsBlob(file, { type: "application/gzip" }), cleanup };
+  } catch (err) {
+    await cleanup();
+    throw err;
+  }
 }

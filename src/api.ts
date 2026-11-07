@@ -204,19 +204,56 @@ export class ApiClient {
 
   createDeployment(
     slug: string,
-    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string> },
+    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const form = new FormData();
     form.set("dry_run", String(input.dryRun));
     form.set("wait", String(input.wait));
+    if (input.clean) form.set("clean", "true");
     if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
     form.set("source", input.source, "source.tar.gz");
     return this.request("POST", `/v1/projects/${enc(slug)}/deployments`, { form, stage: "upload", signal });
   }
 
-  getDeployment(id: string): Promise<Record<string, unknown>> {
-    return this.request("GET", `/v1/deployments/${enc(id)}`);
+  /** Incremental upload step 1: send path -> sha256 for every file; returns the hashes the server lacks. */
+  uploadManifest(slug: string, manifest: unknown): Promise<Record<string, unknown>> {
+    return this.request("POST", `/v1/projects/${enc(slug)}/uploads/manifest`, { json: manifest, stage: "upload" });
+  }
+
+  /** Deploy an uploaded manifest; `blobs` (tar.gz of the missing files, named by hash) rides along. */
+  createManifestDeployment(
+    slug: string,
+    input: { manifestId: string; blobs?: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const path = `/v1/projects/${enc(slug)}/deployments`;
+    if (!input.blobs) {
+      return this.request("POST", path, {
+        json: {
+          manifest: input.manifestId,
+          dry_run: input.dryRun,
+          wait: input.wait,
+          ...(input.clean ? { clean: true } : {}),
+          ...(input.env && Object.keys(input.env).length > 0 ? { env: input.env } : {}),
+        },
+        stage: "upload",
+        signal,
+      });
+    }
+    const form = new FormData();
+    form.set("manifest", input.manifestId);
+    form.set("dry_run", String(input.dryRun));
+    form.set("wait", String(input.wait));
+    if (input.clean) form.set("clean", "true");
+    if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
+    form.set("blobs", input.blobs, "blobs.tar.gz");
+    return this.request("POST", path, { form, stage: "upload", signal });
+  }
+
+  /** `waitS` > 0 long-polls: the API answers as soon as the deployment finishes (or after waitS). */
+  getDeployment(id: string, waitS?: number): Promise<Record<string, unknown>> {
+    return this.request("GET", `/v1/deployments/${enc(id)}`, waitS ? { query: { wait: waitS } } : {});
   }
 
   getDeploymentLogs(id: string, after?: string | number | null): Promise<unknown> {

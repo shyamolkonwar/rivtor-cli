@@ -10,11 +10,12 @@ import {
   normalizeLogs,
 } from "./api.js";
 import { DASHBOARD_URL } from "./constants.js";
-import { PackError, type PackResult, packDir } from "./pack.js";
+import { PackError, type PackResult, manifestDir, packBlobs, packDir } from "./pack.js";
 import { type ResolvedProject, resolveProject, writeRivtorJson } from "./project.js";
 
 export type ProgressEvent =
-  | { type: "packed"; files: number; bytes: number }
+  /** bytes = what gets uploaded; changed = files the server didn't have yet (incremental upload) */
+  | { type: "packed"; files: number; bytes: number; changed?: number }
   | { type: "uploading"; project: string }
   | { type: "started"; deploymentId: string }
   | { type: "stage"; stage: string }
@@ -33,13 +34,22 @@ export interface DeployOptions {
   maxBytes?: number;
   /** write rivtor.json after a successful (non-dry) deploy request. Default true. */
   saveProject?: boolean;
+  /** rebuild every service without build caches (`--clean`) */
+  clean?: boolean;
+  /** upload only changed files (manifest + missing blobs). Default true for real deploys; falls back to a full tarball on older APIs. */
+  incremental?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }
 
+export type PackInfo = Omit<PackResult, "blob" | "cleanup"> & {
+  /** incremental upload: number of files actually uploaded */
+  uploadedFiles?: number;
+};
+
 export type DeployOutcome =
-  | { kind: "result"; project: ResolvedProject; result: DeployResult; pack: Omit<PackResult, "blob" | "cleanup"> }
-  | { kind: "plan"; project: ResolvedProject; plan: DeployPlan; raw: unknown; pack: Omit<PackResult, "blob" | "cleanup"> }
-  | { kind: "started"; project: ResolvedProject; deploymentId: string; pack: Omit<PackResult, "blob" | "cleanup"> };
+  | { kind: "result"; project: ResolvedProject; result: DeployResult; pack: PackInfo }
+  | { kind: "plan"; project: ResolvedProject; plan: DeployPlan; raw: unknown; pack: PackInfo }
+  | { kind: "started"; project: ResolvedProject; deploymentId: string; pack: PackInfo };
 
 const STAGES = new Set(["upload", "detect", "plan", "provision", "build", "migrate", "release", "return"]);
 const asStage = (s: string | null): AgentError["stage"] => (s && STAGES.has(s) ? (s as AgentError["stage"]) : "build");
@@ -73,28 +83,47 @@ export async function runDeploy(client: ApiClient, opts: DeployOptions): Promise
   }
 
   const project = await resolveProject(dir, opts.project);
-  let pack: PackResult;
-  try {
-    pack = await packDir(dir, { maxBytes: opts.maxBytes });
-  } catch (err) {
-    if (err instanceof PackError) throw new RivtorApiError(0, packErrorToAgentError(err));
-    throw err;
+  let created: Record<string, unknown> | null = null;
+  let packInfo: PackInfo | null = null;
+  if (!dryRun && opts.incremental !== false) {
+    // retry once if the server lost blobs between the manifest and the deploy request
+    for (let attempt = 0; attempt < 2 && !created; attempt++) {
+      try {
+        const inc = await incrementalUpload(client, dir, project.slug, opts, emit);
+        if (!inc) break; // API without incremental upload: full tarball below
+        created = inc.created;
+        packInfo = inc.info;
+      } catch (err) {
+        const code = err instanceof RivtorApiError ? err.agentError.code : "";
+        if (attempt === 0 && (code === "missing_blobs" || code === "manifest_not_found")) continue;
+        throw err;
+      }
+    }
   }
-  const packInfo = { file: pack.file, bytes: pack.bytes, files: pack.files, rawBytes: pack.rawBytes };
-  emit({ type: "packed", files: pack.files.length, bytes: pack.bytes });
 
-  let created: Record<string, unknown>;
-  try {
-    emit({ type: "uploading", project: project.slug });
-    created = await client.createDeployment(project.slug, {
-      source: await pack.blob(),
-      dryRun,
-      // dry runs answer synchronously; real deploys start async and we poll for progress
-      wait: dryRun,
-      env: opts.env,
-    });
-  } finally {
-    await pack.cleanup();
+  if (!created || !packInfo) {
+    let pack: PackResult;
+    try {
+      pack = await packDir(dir, { maxBytes: opts.maxBytes });
+    } catch (err) {
+      if (err instanceof PackError) throw new RivtorApiError(0, packErrorToAgentError(err));
+      throw err;
+    }
+    packInfo = { file: pack.file, bytes: pack.bytes, files: pack.files, rawBytes: pack.rawBytes };
+    emit({ type: "packed", files: pack.files.length, bytes: pack.bytes });
+    try {
+      emit({ type: "uploading", project: project.slug });
+      created = await client.createDeployment(project.slug, {
+        source: await pack.blob(),
+        dryRun,
+        // dry runs answer synchronously; real deploys start async and we poll for progress
+        wait: dryRun,
+        env: opts.env,
+        clean: opts.clean,
+      });
+    } finally {
+      await pack.cleanup();
+    }
   }
 
   if (dryRun) {
@@ -133,6 +162,66 @@ export async function runDeploy(client: ApiClient, opts: DeployOptions): Promise
   return { kind: "result", project, result, pack: packInfo };
 }
 
+/**
+ * Incremental upload: manifest of every file (sha256) -> server answers with the hashes it lacks ->
+ * upload only those (with the deploy request). Returns null when the API doesn't support it.
+ */
+async function incrementalUpload(
+  client: ApiClient,
+  dir: string,
+  slug: string,
+  opts: DeployOptions,
+  emit: (ev: ProgressEvent) => void,
+): Promise<{ created: Record<string, unknown>; info: PackInfo } | null> {
+  let manifest;
+  let rawBytes;
+  try {
+    ({ manifest, rawBytes } = await manifestDir(dir));
+  } catch (err) {
+    if (err instanceof PackError) throw new RivtorApiError(0, packErrorToAgentError(err));
+    throw err;
+  }
+  let res: Record<string, unknown>;
+  try {
+    res = await client.uploadManifest(slug, manifest);
+  } catch (err) {
+    if (err instanceof RivtorApiError && (err.status === 404 || err.status === 405)) return null;
+    throw err;
+  }
+  const manifestId = res?.manifestId;
+  const missing = res?.missing;
+  if (typeof manifestId !== "string" || !Array.isArray(missing)) return null;
+  let blobs = null;
+  try {
+    blobs = missing.length ? await packBlobs(dir, manifest, missing as string[], opts.maxBytes) : null;
+  } catch (err) {
+    if (err instanceof PackError) throw new RivtorApiError(0, packErrorToAgentError(err));
+    throw err;
+  }
+  const files = manifest.files.map((f) => f.path).concat((manifest.symlinks ?? []).map((l) => l.path));
+  emit({ type: "packed", files: files.length, bytes: blobs?.bytes ?? 0, changed: blobs?.count ?? 0 });
+  try {
+    emit({ type: "uploading", project: slug });
+    const created = await client.createManifestDeployment(slug, {
+      manifestId,
+      ...(blobs ? { blobs: await blobs.blob() } : {}),
+      dryRun: false,
+      wait: false,
+      env: opts.env,
+      clean: opts.clean,
+    });
+    return {
+      created,
+      info: { file: "", bytes: blobs?.bytes ?? 0, files, rawBytes, uploadedFiles: blobs?.count ?? 0 },
+    };
+  } finally {
+    await blobs?.cleanup();
+  }
+}
+
+/** Server-side long-poll per status request (the API returns as soon as the deployment finishes). */
+const LONG_POLL_S = 2;
+
 export async function waitForDeployment(
   client: ApiClient,
   deploymentId: string,
@@ -158,10 +247,14 @@ export async function waitForDeployment(
 
   for (;;) {
     let dep;
+    const cycleStart = Date.now();
+    // logs and status in parallel; the status request long-polls and returns early on completion
+    const logsP = client.getDeploymentLogs(deploymentId, cursor).catch(() => null);
     try {
-      dep = normalizeDeployment(await client.getDeployment(deploymentId), deploymentId);
+      dep = normalizeDeployment(await client.getDeployment(deploymentId, LONG_POLL_S), deploymentId);
       transientFailures = 0;
     } catch (err) {
+      await logsP;
       // ride out short network blips / 5xx while polling
       if (err instanceof RivtorApiError && err.agentError.retryable && transientFailures < 5) {
         transientFailures++;
@@ -175,12 +268,15 @@ export async function waitForDeployment(
     if (dep.stage && !dep.terminal) enterStage(dep.stage);
 
     try {
-      const logs = normalizeLogs(await client.getDeploymentLogs(deploymentId, cursor));
-      for (const line of logs.lines) {
-        if (line.stage) enterStage(line.stage);
-        emit({ type: "log", line });
+      const raw = await logsP;
+      if (raw !== null) {
+        const logs = normalizeLogs(raw);
+        for (const line of logs.lines) {
+          if (line.stage) enterStage(line.stage);
+          emit({ type: "log", line });
+        }
+        if (logs.cursor !== null) cursor = logs.cursor;
       }
-      if (logs.cursor !== null) cursor = logs.cursor;
     } catch {
       // log streaming is best-effort; deployment status is the source of truth
     }
@@ -222,7 +318,9 @@ export async function waitForDeployment(
         retryable: true,
       });
     }
-    await sleep(interval);
+    // an API that long-polled already waited; older APIs answer at once, so sleep the remainder
+    const spent = Date.now() - cycleStart;
+    if (spent < interval) await sleep(interval - spent);
     if (Date.now() - started > 30_000) interval = Math.min(Math.max(interval, 2000), 5000);
   }
 }

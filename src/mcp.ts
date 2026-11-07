@@ -113,7 +113,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       title: "Deploy a local folder",
       description:
-        "Pack the project folder at `path` (respects .gitignore; .env files are never uploaded), upload it and deploy every service it contains " +
+        "Pack the project folder at `path` (respects .gitignore; .env files are never uploaded; only files changed since the last deploy are uploaded), upload it and deploy every service it contains " +
         "(frontend, API, workers) plus the Postgres/Redis/object storage the code needs. Waits until done and returns a DeployResult JSON: " +
         "`status` is `live` (see `urls`), `failed` (fix the code using `error.cause`, `error.file` and `error.fix`, then call deploy again) " +
         "or `needs_input` (missing secrets listed in `error.missing` / `plan.missingSecrets`: ask the user, call `env_set`, then deploy again). " +
@@ -124,10 +124,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         project: projectArg,
         dry_run: z.boolean().optional().describe("Only detect and return the deploy plan; nothing is built or changed."),
         env: z.record(z.string()).optional().describe("Env vars to set before deploying, e.g. {\"STRIPE_SECRET_KEY\": \"...\"}."),
+        clean: z.boolean().optional().describe("Rebuild every service from scratch without build/dependency caches. Slower; use when a cached dependency looks stale or broken."),
       },
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    wrap("upload", async (args: { path: string; project?: string; dry_run?: boolean; env?: Record<string, string> }, extra) => {
+    wrap("upload", async (args: { path: string; project?: string; dry_run?: boolean; env?: Record<string, string>; clean?: boolean }, extra) => {
       const client = await deps.getClient();
       const progressToken = extra?._meta?.progressToken;
       let step = 0;
@@ -136,6 +137,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         project: args.project,
         dryRun: args.dry_run,
         env: args.env,
+        clean: args.clean,
         wait: true,
         pollIntervalMs: deps.pollIntervalMs,
         sleep: deps.sleep,
