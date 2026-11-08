@@ -1,10 +1,11 @@
 // Generated from the Rivtor monorepo (packages/shared/src/types.ts). Do not edit here.
 // Shared contracts between detection, control plane, CLI/MCP and dashboard.
+import type { VerificationReport } from "./verify.js";
 
 export type ServiceKind = "static" | "web" | "api" | "worker" | "custom";
 export type Runtime = "edge" | "container";
 export type Builder = "static" | "railpack" | "dockerfile";
-export type DataKind = "postgres" | "redis" | "r2";
+export type DataKind = "postgres" | "redis" | "r2" | "mysql" | "mongodb";
 export type Language =
   | "node"
   | "python"
@@ -13,10 +14,50 @@ export type Language =
   | "ruby"
   | "java"
   | "php"
+  | "dotnet"
+  | "elixir"
+  | "kotlin"
+  | "deno"
   | "static"
   | "unknown";
 
 /** One deployable unit found in the repo by the detection engine. */
+export interface WorkloadVolume {
+  type: "volume" | "bind";
+  source: string; // named project volume, or repo-relative read-only source
+  target: string;
+  readOnly: boolean;
+}
+export interface WorkloadConfig {
+  runOnce?: boolean;
+  healthcheck?: {test: string[]; intervalMs?: number; timeoutMs?: number; startPeriodMs?: number; retries?: number};
+  image?: string;
+  dockerfile?: string;
+  command?: string | string[];
+  entrypoint?: string | string[];
+  protocol?: "http" | "grpc" | "tcp";
+  schedule?: string; // five-field UTC cron; kind remains worker for compatibility
+  volumes?: WorkloadVolume[];
+  dependsOn?: Record<string, "service_started" | "service_healthy" | "service_completed_successfully">;
+  composeFile?: string;
+  environmentKeys?: string[];
+  envBindings?: Record<string, { resource: string; type: "data" | "service"; component: "url" | "host" | "port" | "username" | "password" | "database"; suffix?: string }>;
+  buildArgs?: Record<string, string>;
+  buildTarget?: string;
+}
+export interface ManagedDataResource {
+  name: string;
+  kind: Exclude<DataKind, "r2">;
+  image: string;
+  database?: string;
+  volumes?: WorkloadVolume[];
+}
+export interface DetectionQuestion {
+  service: string;
+  field: "startCommand";
+  question: string;
+  source: string;
+}
 export interface DetectedService {
   name: string; // derived from folder ("web", "api"); root repo => project slug-ish "app"
   rootDir: string; // relative to repo root, "." for root
@@ -40,6 +81,7 @@ export interface DetectedService {
   wiring: Record<string, string>;
   public: boolean; // workers are false
   contentHash: string; // sha256 of all files under rootDir (respecting ignores)
+  workload?: WorkloadConfig;
 }
 
 export interface Assumption {
@@ -56,6 +98,8 @@ export interface MissingSecret {
 
 /** Output of detect + plan. Returned by `deploy` with dry_run, and stored in deployments.plan. */
 export interface DeployPlan {
+  managedData?: ManagedDataResource[];
+  questions?: DetectionQuestion[];
   services: DetectedService[];
   data: DataKind[];
   env: Array<{
@@ -67,6 +111,8 @@ export interface DeployPlan {
   missingSecrets: MissingSecret[];
   assumptions: Assumption[];
   warnings: string[];
+  /** deploy.toml [verify] settings, carried to the verifier */
+  verify?: DeployToml["verify"];
 }
 
 /** deploy.toml (optional) — overrides detection. */
@@ -86,6 +132,7 @@ export interface DeployToml {
         | "healthPath"
         | "migrateCommand"
         | "public"
+        | "workload"
       >
     > & {
       data?: DataKind[];
@@ -94,6 +141,13 @@ export interface DeployToml {
     }
   >;
   ignore?: string[];
+  /** [verify]: routes excluded from / added to verified-deploy checks, opt-in browser error script */
+  verify?: {
+    exclude?: string[];
+    routes?: string[];
+    enabled?: boolean;
+    browserErrors?: boolean;
+  };
 }
 
 export type DeployStage =
@@ -168,4 +222,24 @@ export interface DeployResult {
   error?: AgentError;
   upgrade?: UpgradeHint;
   notes?: string[];
+  verification?: VerificationReport;
+  verificationSkipped?: boolean;
+  /**
+   * How the changed services went live: `hot` = code-only change applied as a thin layer on the
+   * current image (full build follows in the background), `full` = normal build.
+   */
+  swapMode?: "hot" | "full";
+  hotSwap?: HotSwapInfo;
 }
+
+/** Details of a hot swap (DeployResult.swapMode = "hot"). */
+export interface HotSwapInfo {
+  services: Array<{ name: string; releaseId: string; files: number; deleted: number }>;
+  /** ms from deploy start until the hot-swapped release was live */
+  liveMs: number;
+  /** background full build: running -> succeeded (container replaced by the real image) | failed */
+  background: "running" | "succeeded" | "failed";
+  backgroundError?: string;
+}
+
+export type * from "./verify.js";

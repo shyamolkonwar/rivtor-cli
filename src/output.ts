@@ -1,5 +1,6 @@
 import type { AgentError, DeployPlan, DeployResult, MissingSecret, ServiceStatus } from "./shared.js";
 import pc from "picocolors";
+import { formatVerification } from "./verification.js";
 import { EXIT } from "./constants.js";
 
 export function exitCodeFor(status: string | undefined): number {
@@ -133,6 +134,8 @@ export function formatDeployResult(r: DeployResult): string {
   for (const n of r.notes ?? []) out.push(pc.dim(`  • ${n}`));
   if (r.upgrade) out.push(`  ${pc.magenta("↑")} ${r.upgrade.message} ${url(r.upgrade.url)}`);
   if (r.dashboardUrl) out.push(`  ${pc.dim("dashboard")} ${url(r.dashboardUrl)}`);
+  if (r.verification) out.push("", formatVerification(r.verification));
+  else out.push("", pc.dim(r.verificationSkipped ? "Verification skipped. No working verdict was issued." : "No verification report returned. Deployment status is not a working verdict."));
   return out.join("\n");
 }
 

@@ -204,13 +204,14 @@ export class ApiClient {
 
   createDeployment(
     slug: string,
-    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean },
+    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const form = new FormData();
     form.set("dry_run", String(input.dryRun));
     form.set("wait", String(input.wait));
     if (input.clean) form.set("clean", "true");
+    if (input.verify !== undefined) form.set("verify", String(input.verify));
     if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
     form.set("source", input.source, "source.tar.gz");
     return this.request("POST", `/v1/projects/${enc(slug)}/deployments`, { form, stage: "upload", signal });
@@ -224,7 +225,7 @@ export class ApiClient {
   /** Deploy an uploaded manifest; `blobs` (tar.gz of the missing files, named by hash) rides along. */
   createManifestDeployment(
     slug: string,
-    input: { manifestId: string; blobs?: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean },
+    input: { manifestId: string; blobs?: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const path = `/v1/projects/${enc(slug)}/deployments`;
@@ -235,6 +236,7 @@ export class ApiClient {
           dry_run: input.dryRun,
           wait: input.wait,
           ...(input.clean ? { clean: true } : {}),
+          ...(input.verify !== undefined ? { verify: input.verify } : {}),
           ...(input.env && Object.keys(input.env).length > 0 ? { env: input.env } : {}),
         },
         stage: "upload",
@@ -246,6 +248,7 @@ export class ApiClient {
     form.set("dry_run", String(input.dryRun));
     form.set("wait", String(input.wait));
     if (input.clean) form.set("clean", "true");
+    if (input.verify !== undefined) form.set("verify", String(input.verify));
     if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
     form.set("blobs", input.blobs, "blobs.tar.gz");
     return this.request("POST", path, { form, stage: "upload", signal });

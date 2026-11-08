@@ -97,11 +97,12 @@ export function registerDeploy(program: Command): void {
     .option("-p, --project <slug>", "project slug (default: rivtor.json, else folder name)")
     .option("--dry-run", "only detect and print the deploy plan")
     .option("--json", "print the raw DeployResult JSON")
+    .option("--no-verify", "skip post-deploy verification (does not bypass release security checks)")
     .option("--no-wait", "start the deployment and exit without waiting")
     .option("--env-file <file>", "send variables from a dotenv file with this deploy")
     .option("--clean", "rebuild every service from scratch, without build or dependency caches")
     .action(
-      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string; clean?: boolean }) => {
+      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string; clean?: boolean; verify: boolean }) => {
         const client = await getClient();
         let env: Record<string, string> | undefined;
         if (opts.envFile) {
@@ -119,6 +120,7 @@ export function registerDeploy(program: Command): void {
           wait: opts.wait,
           env,
           clean: opts.clean,
+          verify: opts.verify,
           onProgress: progress?.handle,
         });
 

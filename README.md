@@ -36,6 +36,7 @@ rivtor deploy ./my-app          # deploy another folder
 rivtor deploy --dry-run         # print the detected plan; nothing is deployed
 rivtor deploy --env-file .env.production   # send these variables with the deploy
 rivtor deploy --no-wait         # start and exit right away
+rivtor deploy --no-verify       # skip post-deploy verification, not release security checks
 rivtor deploy --json            # print the raw DeployResult (for scripts and agents)
 rivtor deploy --clean           # rebuild everything from scratch, without build/dependency caches
 ```
@@ -55,6 +56,23 @@ The project name comes from `--project <slug>`, then from `rivtor.json` (`{ "pro
 
 Exit codes: `0` live, `1` failed, `2` needs input (for example a missing secret). When a deploy fails, the CLI prints the cause, the file and line, and the fix.
 
+## Verified deploys
+
+When the API returns a verification report, deploy output ends with its actual verdict (`working`, `partly_working`, or `broken`), summary, check counts, cause/file/fix for each issue, and a private report link. Missing or skipped reports are explicitly labeled, never inferred as working from deployment success. Review skipped check groups before assuming coverage.
+
+```bash
+rivtor verify my-app            # re-check the current live app without redeploying
+rivtor verify my-app --json     # complete machine-readable VerificationReport
+rivtor status my-app            # last verdict, report link and open issue count
+rivtor issues my-app --status open --json
+rivtor issue-resolve <issue-id> --project my-app
+rivtor verify-fix <issue-id> --project my-app --yes
+```
+
+Manual verification applies no configuration fixes. It exits `0` only for `working`; other verdicts and request failures exit `1`. Deploy keeps its existing deployment-status exit codes; automation should inspect `verification.verdict` separately in `--json` output. `--no-wait` stops waiting but leaves verification enabled.
+
+Report pages and screenshots require sign-in and project membership. Sharing a report URL does not grant access. See <https://rivtor.com/docs/verify>.
+
 ## Commands
 
 | Command                                                                                           | What it does                                                      |
@@ -62,7 +80,11 @@ Exit codes: `0` live, `1` failed, `2` needs input (for example a missing secret)
 | `rivtor login [--token <t>]`                                                                      | Save an API token                                                 |
 | `rivtor logout`                                                                                   | Remove the saved token                                            |
 | `rivtor whoami`                                                                                   | Show the logged-in account and plan                               |
-| `rivtor deploy [path] [--project] [--dry-run] [--json] [--no-wait] [--env-file] [--clean]`        | Deploy a folder                                                   |
+| `rivtor deploy [path] [--project] [--dry-run] [--json] [--no-wait] [--env-file] [--clean] [--no-verify]`        | Deploy a folder                                                   |
+| `rivtor verify [project] [--json]` | Re-check the live app and return a verification report |
+| `rivtor issues [project] [--status open\|resolved\|dismissed\|all] [--severity]` | List production issues as JSON |
+| `rivtor issue-resolve <id> [--project] [--dismiss]` | Resolve an issue or persist a false-positive dismissal |
+| `rivtor verify-fix <ids...> [--project] --yes` | Consent to allowlisted configuration fixes and re-verification |
 | `rivtor status [project]`                                                                         | Services, URLs, data services and the last deploy                 |
 | `rivtor projects`                                                                                 | List your projects                                                |
 | `rivtor logs [project] [--service] [--since 1h] [--level error] [--raw] [--build <deploymentId>]` | Runtime logs, or a deployment's build log                         |

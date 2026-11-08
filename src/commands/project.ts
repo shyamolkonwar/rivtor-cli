@@ -1,4 +1,4 @@
-import type { ServiceStatus } from "../shared.js";
+import type { VerifySummary, ServiceStatus } from "../shared.js";
 import type { Command } from "commander";
 import { spawn } from "node:child_process";
 import pc from "picocolors";
@@ -6,6 +6,7 @@ import { normalizeLogs } from "../api.js";
 import { EXIT } from "../constants.js";
 import { CliError, action, getClient, printJson, projectSlug } from "../context.js";
 import { formatBytes, formatServices, statusColor, table, url } from "../output.js";
+import { formatVerificationSummary } from "../verification.js";
 import { ask } from "../prompt.js";
 
 function asArray(v: unknown, keys: string[]): Record<string, unknown>[] {
@@ -75,6 +76,7 @@ export function registerProject(program: Command): void {
             table(data.map((d) => [pc.bold(str(d.kind)), statusColor(str(d.status)), pc.dim(typeof d.sizeBytes === "number" ? `${formatBytes(d.sizeBytes)}${typeof d.limitBytes === "number" ? ` / ${formatBytes(d.limitBytes)}` : ""}` : "")])) + "\n",
           );
         }
+        process.stdout.write(formatVerificationSummary(res.verification as VerifySummary | undefined) + "\n");
         const last = (res.lastDeployment ?? res.last_deployment) as Record<string, unknown> | undefined;
         if (last) process.stdout.write(pc.dim(`  last deploy ${str(last.id)} ${str(last.status)} ${str(last.created_at ?? last.createdAt)}\n`));
         if (typeof res.dashboardUrl === "string") process.stdout.write(`  ${pc.dim("dashboard")} ${url(res.dashboardUrl)}\n`);

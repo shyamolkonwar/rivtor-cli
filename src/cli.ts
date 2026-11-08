@@ -3,6 +3,9 @@ import { registerAuth } from "./commands/auth.js";
 import { registerDb } from "./commands/db.js";
 import { registerDeploy } from "./commands/deploy.js";
 import { registerEnv } from "./commands/env.js";
+import { registerVerify } from "./commands/verify.js";
+import { registerWatch } from "./commands/watch.js";
+import { registerImport } from "./commands/import.js";
 import { registerProject } from "./commands/project.js";
 import { getClient } from "./context.js";
 
@@ -23,6 +26,9 @@ export function buildProgram(version: string): Command {
   registerProject(program);
   registerEnv(program);
   registerDb(program);
+  registerVerify(program);
+  registerWatch(program);
+  registerImport(program);
 
   program
     .command("mcp")

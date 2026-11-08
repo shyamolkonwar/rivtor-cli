@@ -39,6 +39,37 @@ describe("MCP server", () => {
     expect(calls[0].url).toBe("https://api.test/v1/projects/shop");
   });
 
+  it("forwards verification and issue queries without mutating the project", async () => {
+    const { client, calls } = await connect(() => json({ verdict: "working", issues: [] }));
+    const verification = await client.callTool({ name: "verify", arguments: { project: "shop" } });
+    expect(verification.isError).toBeFalsy();
+    await client.callTool({ name: "issues", arguments: { project: "shop", status: "open", limit: 10 } });
+    expect(calls[0].url).toBe("https://api.test/v1/projects/shop/verify");
+    expect(calls[1].url).toContain("/issues?status=open&limit=10");
+  });
+
+  it("requires explicit approval for fixes and import cutover", async () => {
+    const { client, calls } = await connect(() => json({}));
+    expect((await client.callTool({ name: "verify_fix", arguments: { project: "shop" } })).isError).toBe(true);
+    expect((await client.callTool({ name: "import_cutover", arguments: { project: "shop", id: "a1234567-1234-4234-8234-123456789012", expectedRevision: 0, planDigest: "a".repeat(64) } })).isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forwards import status without approving or deploying", async () => {
+    const { client, calls } = await connect(() => json({ state: "planned" }));
+    const id = "a1234567-1234-4234-8234-123456789012";
+    const response = await client.callTool({ name: "import", arguments: { project: "shop", action: "status", id } });
+    expect(response.isError).toBeFalsy();
+    expect(calls[0].url).toBe(`https://api.test/v1/projects/shop/imports/${id}`);
+    expect(calls[0].method).toBe("GET");
+  });
+  it("posts import scans to the registered collection endpoint", async () => {
+    const { client, calls } = await connect(() => json({ state: "planned" }));
+    const response = await client.callTool({ name: "import", arguments: { project: "shop", request: { source: "auto", files: {} } } });
+    expect(response.isError).toBeFalsy();
+    expect(calls[0].url).toBe("https://api.test/v1/projects/shop/imports");
+  });
+
   it("deploy dry_run packs locally and never uploads .env", async () => {
     const dir = await makeTree({ "package.json": "{}", ".env": "STRIPE_SECRET_KEY=sk_live_abc", "server.js": "x" });
     let form: FormData | null = null;

@@ -38,6 +38,8 @@ export interface DeployOptions {
   clean?: boolean;
   /** upload only changed files (manifest + missing blobs). Default true for real deploys; falls back to a full tarball on older APIs. */
   incremental?: boolean;
+  /** Skip post-deploy verification only when explicitly false. */
+  verify?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -120,6 +122,7 @@ export async function runDeploy(client: ApiClient, opts: DeployOptions): Promise
         wait: dryRun,
         env: opts.env,
         clean: opts.clean,
+        verify: opts.verify,
       });
     } finally {
       await pack.cleanup();
@@ -209,6 +212,7 @@ async function incrementalUpload(
       wait: false,
       env: opts.env,
       clean: opts.clean,
+      verify: opts.verify,
     });
     return {
       created,
