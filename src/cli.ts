@@ -7,6 +7,7 @@ import { registerVerify } from "./commands/verify.js";
 import { registerWatch } from "./commands/watch.js";
 import { registerImport } from "./commands/import.js";
 import { registerProject } from "./commands/project.js";
+import { registerSkills } from "./commands/skills.js";
 import { getClient } from "./context.js";
 
 export function buildProgram(version: string): Command {
@@ -18,7 +19,7 @@ export function buildProgram(version: string): Command {
     .showHelpAfterError()
     .addHelpText(
       "after",
-      "\nGet started:\n  rivtor login\n  rivtor deploy\n\nUse from AI agents:\n  claude mcp add rivtor -- npx -y rivtor mcp\n\nEnv: RIVTOR_TOKEN, RIVTOR_API_URL override the saved config (~/.config/rivtor/config.json).",
+      "\nGet started:\n  rivtor login\n  rivtor deploy\n\nUse from AI agents:\n  claude mcp add rivtor -- npx -y rivtor mcp\n  rivtor skills install --target claude\n\nEnv: RIVTOR_TOKEN, RIVTOR_API_URL override the saved config (~/.config/rivtor/config.json).",
     );
 
   registerAuth(program);
@@ -29,6 +30,7 @@ export function buildProgram(version: string): Command {
   registerVerify(program);
   registerWatch(program);
   registerImport(program);
+  registerSkills(program);
 
   program
     .command("mcp")

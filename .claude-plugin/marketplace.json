@@ -1,0 +1,26 @@
+{
+  "name": "rivtor",
+  "owner": {
+    "name": "Rivtor",
+    "url": "https://rivtor.com"
+  },
+  "description": "Official Rivtor plugins for Claude Code.",
+  "plugins": [
+    {
+      "name": "rivtor",
+      "source": "./plugins/rivtor",
+      "description": "Deploy and operate apps on Rivtor from your coding agent: deploy, read verified results, fix failures from structured errors, manage secrets, logs, databases, domains and rollbacks.",
+      "author": {
+        "name": "Rivtor",
+        "url": "https://rivtor.com"
+      },
+      "category": "deployment",
+      "tags": [
+        "deploy",
+        "hosting",
+        "paas",
+        "mcp"
+      ]
+    }
+  ]
+}

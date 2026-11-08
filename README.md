@@ -99,6 +99,8 @@ Report pages and screenshots require sign-in and project membership. Sharing a r
 | `rivtor destroy [project]`                                                                        | Delete a project and all its data; you confirm by typing the slug |
 | `rivtor upgrade [hobby\|pro\|team] [--interval month\|year]`                                      | Open a checkout link                                              |
 | `rivtor mcp`                                                                                      | Run the MCP server over stdio                                     |
+| `rivtor skills install [--target claude\|codex\|cursor\|all] [--project]`                         | Install the Rivtor agent skill                                    |
+| `rivtor skills path`                                                                              | Print the folder of the bundled skill                             |
 
 Most commands accept `--json` and `--project <slug>`.
 
@@ -152,6 +154,30 @@ env = { RIVTOR_TOKEN = "rvt_..." }
 ### Remote MCP (no local install)
 
 Agents that don't need to upload files from disk can connect to `https://api.rivtor.com/mcp` with the header `Authorization: Bearer rvt_...`. The remote `deploy` tool accepts a git URL, a starter template or inline files.
+
+## Agent skill
+
+The package ships an [Agent Skill](https://agentskills.io) that teaches coding agents the Rivtor loop: deploy, read the `DeployResult` and verification verdict, fix from `error.cause`/`error.fix`, ask for missing secrets, and stop when a human is needed. It also lists every error code with its fix.
+
+```bash
+npx rivtor skills install                      # Claude Code: ~/.claude/skills/rivtor
+npx rivtor skills install --project            # Claude Code, this project: ./.claude/skills/rivtor
+npx rivtor skills install --target codex       # Codex: ~/.agents/skills/rivtor (--project: ./.agents/skills/rivtor)
+npx rivtor skills install --target cursor      # Cursor rule: ./.cursor/rules/rivtor.mdc (always per project)
+npx rivtor skills install --target all         # all three
+npx rivtor skills path                         # where the bundled skill lives, to copy it by hand
+```
+
+Re-running `install` replaces the previous copy. Start a new agent session to load it.
+
+In Claude Code you can also install it as a plugin:
+
+```text
+/plugin marketplace add shyamolkonwar/rivtor-cli
+/plugin install rivtor@rivtor
+```
+
+The skill uses the Rivtor MCP tools when they are connected and the `rivtor` CLI otherwise, so connect the MCP server too (see above).
 
 ## License
 
