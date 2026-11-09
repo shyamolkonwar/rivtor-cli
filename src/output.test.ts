@@ -21,9 +21,9 @@ describe("output", () => {
   });
 
   it("prints live results with URLs and needs_input with env set hints", () => {
-    const live = strip(formatDeployResult({ status: "live", deploymentId: "d", project: "shop", urls: { web: "https://shop.rivtor.com" }, services: [], data: [], dashboardUrl: "https://rivtor.com/dashboard/projects/shop", durationMs: 95000 }));
+    const live = strip(formatDeployResult({ status: "live", deploymentId: "d", project: "shop", urls: { web: "https://shop.rivtor.app" }, services: [], data: [], dashboardUrl: "https://rivtor.com/dashboard/projects/shop", durationMs: 95000 }));
     expect(live).toContain("✓ Live  shop in 1m 35s");
-    expect(live).toContain("https://shop.rivtor.com");
+    expect(live).toContain("https://shop.rivtor.app");
     const needs = strip(
       formatDeployResult({
         status: "needs_input", deploymentId: "d", project: "shop", urls: {}, services: [], data: [], dashboardUrl: "", durationMs: 0,
@@ -42,7 +42,7 @@ describe("output", () => {
             { name: "web", rootDir: "apps/web", kind: "web", runtime: "container", builder: "railpack", language: "node", framework: "nextjs", buildCommand: null, startCommand: null, outputDir: null, port: 3000, healthPath: "/", migrateCommand: null, dataNeeds: [], envNames: [], wiring: { NEXT_PUBLIC_API_URL: "api" }, public: true, contentHash: "" },
           ],
           data: ["postgres"],
-          env: [{ service: "web", key: "NEXT_PUBLIC_API_URL", source: "wired", valuePreview: "https://shop-api.rivtor.com" }],
+          env: [{ service: "web", key: "NEXT_PUBLIC_API_URL", source: "wired", valuePreview: "https://shop-api.rivtor.app" }],
           missingSecrets: [],
           assumptions: [{ service: "api", message: "Assumed port 8000", override: "deploy.toml services.api.port" }],
           warnings: [],

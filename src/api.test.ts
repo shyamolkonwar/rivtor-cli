@@ -99,7 +99,7 @@ describe("ApiClient", () => {
 });
 
 describe("normalizeDeployment", () => {
-  const result = { status: "live", deploymentId: "d1", project: "p", urls: { web: "https://p.rivtor.com" }, services: [], data: [], dashboardUrl: "", durationMs: 1 };
+  const result = { status: "live", deploymentId: "d1", project: "p", urls: { web: "https://p.rivtor.app" }, services: [], data: [], dashboardUrl: "", durationMs: 1 };
   it("handles flat in-progress deployments", () => {
     expect(normalizeDeployment({ id: "d1", status: "build" }, "d1")).toMatchObject({ terminal: false, stage: "build", result: null });
   });

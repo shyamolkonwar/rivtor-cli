@@ -53,8 +53,8 @@ The local MCP server is connected.
    {
      "status": "live",
      "urls": {
-       "web": "https://shop.rivtor.com",
-       "api": "https://shop-api.rivtor.com"
+       "web": "https://shop.rivtor.app",
+       "api": "https://shop-api.rivtor.app"
      },
      "verification": {
        "verdict": "working",

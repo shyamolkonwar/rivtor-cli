@@ -1,6 +1,6 @@
 {
   "name": "rivtor",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Deploy and operate apps on Rivtor from your coding agent: the Rivtor MCP server (OAuth sign-in) plus the Rivtor skill to deploy, read verified results, fix failures from structured errors, and manage secrets, logs, databases, domains and rollbacks.",
   "author": {
     "name": "Rivtor",

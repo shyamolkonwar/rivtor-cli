@@ -102,7 +102,7 @@ The app must listen on `0.0.0.0` and the port in `PORT`, e.g.
 | `pip_resolution_conflict` | Relax or align conflicting pins and regenerate the lockfile if any. |
 | `python_package_not_found` | Fix the package name/version (check PyPI and supported Python versions). |
 | `python_wheel_build_failed` | Use a package with wheels (`psycopg2` → `psycopg2-binary` or `psycopg[binary]`), upgrade it, or pin Python 3.12. |
-| `django_disallowed_host` | `ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", ".rivtor.com,localhost").split(",")` (plus custom domains) and `CSRF_TRUSTED_ORIGINS = ["https://*.rivtor.com"]`. |
+| `django_disallowed_host` | `ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", ".rivtor.app,localhost").split(",")` (plus custom domains) and `CSRF_TRUSTED_ORIGINS = ["https://*.rivtor.app"]`. |
 | `django_csrf_origin` | Add the app's https origins to `CSRF_TRUSTED_ORIGINS`. |
 | `django_improperly_configured` | Fix the reported setting, e.g. `STATIC_ROOT = BASE_DIR / "staticfiles"` for collectstatic. |
 

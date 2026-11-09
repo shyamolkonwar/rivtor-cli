@@ -35,8 +35,8 @@ Wiring: a frontend reading `NEXT_PUBLIC_API_URL` or `VITE_API_URL` gets the API'
 build time. Services in one project share a private network and reach each other by name
 (`http://api:8000`).
 
-Hostnames: the primary public service gets `<slug>.rivtor.com`; other public services get
-`<slug>-<service>.rivtor.com`. Workers get none. Custom domains attach with `domain_add`.
+Hostnames: the primary public service gets `<slug>.rivtor.app`; other public services get
+`<slug>-<service>.rivtor.app`. Workers get none. Custom domains attach with `domain_add`.
 
 Migrations: when a migration tool is detected, its command (`prisma migrate deploy`,
 `alembic upgrade head`, `python manage.py migrate`) runs against the database before release.

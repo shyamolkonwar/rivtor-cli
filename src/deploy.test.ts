@@ -44,7 +44,7 @@ describe("runDeploy", () => {
 
   it("starts async, polls with progress and writes rivtor.json", async () => {
     const dir = await makeTree({ "main.py": "print(1)" }, "api-thing");
-    const result = { status: "live", deploymentId: "dep_1", project: "api-thing", urls: { app: "https://api-thing.rivtor.com" }, services: [], data: [], dashboardUrl: "https://rivtor.com/dashboard", durationMs: 1000 };
+    const result = { status: "live", deploymentId: "dep_1", project: "api-thing", urls: { app: "https://api-thing.rivtor.app" }, services: [], data: [], dashboardUrl: "https://rivtor.com/dashboard", durationMs: 1000 };
     const states = [{ id: "dep_1", status: "build" }, { id: "dep_1", status: "release" }, { deployment: { id: "dep_1", status: "live", result } }];
     let poll = 0;
     let form: FormData | null = null;
