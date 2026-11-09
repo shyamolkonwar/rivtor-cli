@@ -46,7 +46,7 @@ function toAgentError(err: unknown, stage: AgentError["stage"]): AgentError {
     if (e.code === "not_logged_in" || e.code === "unauthorized") {
       return {
         ...e,
-        fix: `Ask the user to run \`npx rivtor login\` in a terminal (token from ${TOKENS_URL}), or add RIVTOR_TOKEN to this MCP server's env config, then retry.`,
+        fix: `Run \`npx rivtor login\` in a terminal (token from ${TOKENS_URL}), or add RIVTOR_TOKEN to this MCP server's env config, then retry.`,
       };
     }
     return e;
@@ -77,13 +77,20 @@ export const TOOL_NAMES = [
   "env_set",
   "rollback",
   "db",
+  "db_connection",
+  "db_export",
   "domain_add",
   "destroy",
   "upgrade",
   "list_projects",
   "verify", "issues", "issue_resolve", "verify_fix", "verify_journey",
-  "import", "import_cutover", "import_undo",
+  "import", "import_status", "import_cutover", "import_undo",
 ] as const;
+
+/** Annotation presets: every tool is either read-only or a write that can change or delete data.
+ *  openWorldHint is true only for tools that reach outside Rivtor (live apps, other hosts, payment providers). */
+export const READ = { readOnlyHint: true, openWorldHint: false } as const;
+export const WRITE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
 export function createMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer(
@@ -91,8 +98,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       instructions:
         "Rivtor deploys any repo (frontend + backend + Postgres/Redis/storage) with one `deploy` call and returns live URLs. " +
-        "Self-healing loop: call `deploy` → if status is `failed`, read error.cause/error.file/error.fix, edit the code, call `deploy` again (only changed services rebuild). " +
-        "If status is `needs_input`, ask the user for each missing secret once, store them with `env_set`, then call `deploy` again. Never print secret values back to the user.",
+        "A deploy result has status `live` (with URLs), `failed` (with error.cause, error.file and error.fix; a redeploy rebuilds only changed services) " +
+        "or `needs_input` (missing secrets, which `env_set` stores before the next deploy). Results never contain secret values.",
     },
   );
   const cwd = deps.cwd ?? (() => process.cwd());
@@ -115,49 +122,60 @@ export function createMcpServer(deps: McpDeps): McpServer {
     return ok(await client.request(method, `/v1/projects/${encodeURIComponent(await slugFor(project))}${suffix}`, options));
   };
   server.registerTool("verify", {
-    description: "Run safe live verification and return the real verdict and private report without redeploying the project.",
-    inputSchema: { project: projectArg }, annotations: { destructiveHint: false, openWorldHint: true },
+    title: "Verify an app",
+    description: "Run safe live checks against a deployed project and return the verdict, issues and private report URL. Does not redeploy or change the app.",
+    inputSchema: { project: projectArg }, annotations: { ...READ, openWorldHint: true },
   }, wrap("return", async ({ project }) => projectRequest(project, "POST", "/verify", { json: {} })));
   server.registerTool("issues", {
-    description: "Read persistent verification, security and production issue groups with exact pagination and their current disposition.",
+    title: "List issues",
+    description: "List persistent verification, security and production issue groups for a project, with pagination and their current disposition.",
     inputSchema: { project: projectArg, status: z.enum(["open", "resolved", "dismissed", "all"]).optional(), severity: z.enum(["critical", "warning", "info"]).optional(), limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).max(10000).optional() },
-    annotations: { readOnlyHint: true },
+    annotations: READ,
   }, wrap("return", async ({ project, ...query }) => projectRequest(project, "GET", "/issues", { query })));
   server.registerTool("issue_resolve", {
-    description: "Resolve a fixed issue, or dismiss a false positive for this project. Resolution is rechecked on the next recurrence.",
+    title: "Resolve or dismiss an issue",
+    description: "Mark an issue as resolved (fixed) or dismissed (false positive) for this project. A resolved issue reopens on recurrence.",
     inputSchema: { project: projectArg, id: z.string().uuid(), status: z.enum(["resolved", "dismissed"]) },
-    annotations: { destructiveHint: false, idempotentHint: true },
+    annotations: { ...WRITE, idempotentHint: true },
   }, wrap("return", async ({ project, id, status }) => projectRequest(project, "POST", `/issues/${encodeURIComponent(id)}/resolve`, { json: { status } })));
   server.registerTool("verify_fix", {
-    description: "Only after user consent, apply server-validated canonical URL, same-project CORS or safe-header fixes. Never modifies application code or database schemas.",
+    title: "Apply verification fixes",
+    description: "Apply server-validated configuration fixes (canonical URL, same-project CORS, safe security headers) for verification issues, then verify again. Requires consent: true. Does not modify application code or database schemas.",
     inputSchema: { project: projectArg, consent: z.literal(true), issue_ids: z.array(z.string().uuid()).max(20).optional(), fixes: z.array(z.record(z.string(), z.unknown())).max(20).optional() },
-    annotations: { destructiveHint: false, openWorldHint: true },
+    annotations: { ...WRITE, openWorldHint: true },
   }, wrap("return", async ({ project, ...json }) => projectRequest(project, "POST", "/verify-fix", { json })));
   server.registerTool("verify_journey", {
-    description: "Execute a named saved journey with the project's encrypted, consented test account inside an isolated browser; no payment or deletion actions.",
+    title: "Run a saved journey",
+    description: "Execute a named saved journey with the project's encrypted, consented test account inside an isolated browser; no payment, deletion or non-login writes.",
     inputSchema: { project: projectArg, journey: z.string().min(1).max(80) },
-    annotations: { destructiveHint: false, openWorldHint: true },
+    annotations: { ...READ, openWorldHint: true },
   }, wrap("return", async ({ project, journey }) => projectRequest(project, "POST", "/journeys/verify", { json: { journey } })));
   const approvalSchema = z.object({ expectedRevision: z.number().int().nonnegative(), planDigest: z.string().regex(/^[a-f0-9]{64}$/), approve: z.literal(true), acknowledgeDnsOnlyUndo: z.boolean().optional() }).strict();
   server.registerTool("import", {
-    description: "Plan or inspect an encrypted import without deleting the source host. For scan, request contains the documented provider/config/source mappings; never discover credentials implicitly or echo them. Each approve/deploy/copy/sync action requires a fresh revision-bound approval. DNS cutover is separate.",
-    inputSchema: { project: projectArg, action: z.enum(["scan", "status", "approve", "deploy", "copy", "sync"]).default("scan"), id: z.string().uuid().optional(), request: z.record(z.string(), z.unknown()).optional(), approval: approvalSchema.optional() },
-    annotations: { destructiveHint: true, openWorldHint: true },
+    title: "Import an existing app",
+    description: "Import an app from another host without deleting the source host. action=scan (default) sends `request` (the documented provider/config/source mappings) and stores an encrypted, names-only plan; credentials are accepted only in `request` and are never returned. action=approve/deploy/copy/sync runs the next phase and requires `id` plus a fresh revision-bound approval. Progress is reported by import_status; DNS changes are made by import_cutover and import_undo.",
+    inputSchema: { project: projectArg, action: z.enum(["scan", "approve", "deploy", "copy", "sync"]).default("scan"), id: z.string().uuid().optional(), request: z.record(z.string(), z.unknown()).optional(), approval: approvalSchema.optional() },
+    annotations: { ...WRITE, openWorldHint: true },
   }, wrap("plan", async ({ project, action, id, request, approval }) => {
     if (action === "scan") {
       if (!(await deps.getClient()).apiUrl.startsWith("https://")) throw new Error("Import credentials require HTTPS");
       return projectRequest(project, "POST", "/imports", { json: request ?? { source: "auto" } });
     }
     if (!id) throw new Error("Scan first and provide its import ID");
-    const suffix = `/imports/${encodeURIComponent(id)}`;
-    if (action === "status") return projectRequest(project, "GET", suffix);
     if (!approval) throw new Error("This action requires explicit revision-bound approval");
-    return projectRequest(project, "POST", `${suffix}/${action}`, { json: approval });
+    return projectRequest(project, "POST", `/imports/${encodeURIComponent(id)}/${action}`, { json: approval });
   }));
+  server.registerTool("import_status", {
+    title: "Import status",
+    description: "Return the current state of an import: plan, revision, digest, phase results and any running operation (absent when finished).",
+    inputSchema: { project: projectArg, id: z.string().uuid() },
+    annotations: READ,
+  }, wrap("plan", async ({ project, id }) => projectRequest(project, "GET", `/imports/${encodeURIComponent(id)}`)));
   for (const action of ["cutover", "undo"] as const) server.registerTool(`import_${action}`, {
-    description: action === "cutover" ? "Explicit owner-approved traffic cutover after verified preview, data synchronization and writer fencing. Does not delete the source host." : "Explicit owner-approved DNS-only undo within seven days. Requires acknowledgement that application writes are not automatically reversed.",
+    title: action === "cutover" ? "Approve import DNS cutover" : "Undo import DNS cutover",
+    description: action === "cutover" ? "Owner-approved traffic cutover after verified preview, data synchronization and writer fencing. Does not delete the source host." : "Owner-approved DNS-only undo within seven days. Requires acknowledgeDnsOnlyUndo: true, confirming that application writes are not automatically reversed.",
     inputSchema: { project: projectArg, id: z.string().uuid(), ...approvalSchema.shape },
-    annotations: { destructiveHint: true, openWorldHint: true },
+    annotations: { ...WRITE, openWorldHint: true },
   }, wrap("plan", async ({ project, id, ...approval }) => projectRequest(project, "POST", `/imports/${encodeURIComponent(id)}/${action}`, { json: approval })));
 
   server.registerTool(
@@ -167,9 +185,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         "Pack the project folder at `path` (respects .gitignore; .env files are never uploaded; only files changed since the last deploy are uploaded), upload it and deploy every service it contains " +
         "(frontend, API, workers) plus the Postgres/Redis/object storage the code needs. Waits until done and returns a DeployResult JSON: " +
-        "`status` is `live` (see `urls`), `failed` (fix the code using `error.cause`, `error.file` and `error.fix`, then call deploy again) " +
-        "or `needs_input` (missing secrets listed in `error.missing` / `plan.missingSecrets`: ask the user, call `env_set`, then deploy again). " +
-        "Use `dry_run: true` first to preview the detected services, data, env wiring and assumptions without deploying. " +
+        "`status` is `live` (see `urls`), `failed` (with `error.cause`, `error.file` and `error.fix`; a redeploy rebuilds only changed services) " +
+        "or `needs_input` (missing secrets listed in `error.missing` / `plan.missingSecrets`, which `env_set` stores). " +
+        "`dry_run: true` previews the detected services, data, env wiring and assumptions without deploying. " +
         "`env` sets plain env vars/secrets for this deploy (values are never echoed back).",
       inputSchema: {
         path: z.string().min(1).describe("Absolute path (or relative to the server's working directory) of the project root to deploy."),
@@ -179,7 +197,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         clean: z.boolean().optional().describe("Rebuild every service from scratch without build/dependency caches. Slower; use when a cached dependency looks stale or broken."),
         verify: z.boolean().optional().describe("False skips functional checks, but mandatory client-secret scanning always runs."),
       },
-      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { ...WRITE, openWorldHint: true },
     },
     wrap("upload", async (args: { path: string; project?: string; dry_run?: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean }, extra) => {
       const client = await deps.getClient();
@@ -216,7 +234,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: "Project status",
       description: "Current state of every service (status, URL, framework, release), data service (Postgres/Redis/R2 usage) and the last deployment of a project.",
       inputSchema: { project: projectArg },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     wrap("return", async (args: { project?: string }) => {
       const client = await deps.getClient();
@@ -230,7 +248,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: "Logs",
       description:
         "Runtime logs of a project (summarised by default; filter by service, time window and level), or the build/deploy log of one deployment when `deployment_id` is given. " +
-        "You rarely need this: failed deploys already return a structured error with cause and fix.",
+        "Failed deploys also return a structured error with cause and fix.",
       inputSchema: {
         project: projectArg,
         service: z.string().optional().describe("Service name, e.g. \"api\"."),
@@ -240,7 +258,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         summary: z.boolean().optional().describe("Default true: grouped summary. false = raw lines."),
         deployment_id: z.string().optional().describe("Return the build/deploy log of this deployment instead of runtime logs."),
       },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     wrap("return", async (args: { project?: string; service?: string; since?: string; level?: string; limit?: number; summary?: boolean; deployment_id?: string }) => {
       const client = await deps.getClient();
@@ -255,14 +273,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: "Set or remove env vars / secrets",
       description:
         "Set (`vars`) and/or remove (`remove`) environment variables for a project, optionally for a single service. Running services restart with the new values (no rebuild). " +
-        "Use this after a deploy returns `needs_input`. Values are stored encrypted and are never echoed back; only the key names are returned.",
+        "Used after a deploy returns `needs_input`. Values are stored encrypted and are never echoed back; only the key names are returned.",
       inputSchema: {
         project: projectArg,
         vars: z.record(z.string(), z.string()).optional().describe("Map of KEY to value."),
         remove: z.array(z.string()).optional().describe("Keys to delete."),
         service: z.string().optional().describe("Limit to one service; default applies to all services."),
       },
-      annotations: { destructiveHint: false, idempotentHint: true },
+      annotations: { ...WRITE, idempotentHint: true },
     },
     wrap("env", async (args: { project?: string; vars?: Record<string, string>; remove?: string[]; service?: string }) => {
       const client = await deps.getClient();
@@ -288,7 +306,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: "Roll back",
       description: "Point traffic back at a previous release in seconds. Without `release_id`, rolls back to the release before the current one.",
       inputSchema: { project: projectArg, release_id: z.string().optional() },
-      annotations: { destructiveHint: false },
+      annotations: WRITE,
     },
     wrap("rollback", async (args: { project?: string; release_id?: string }) => {
       const client = await deps.getClient();
@@ -299,26 +317,54 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     "db",
     {
-      title: "Database",
+      title: "Read the database",
       description:
-        "Work with the project's Postgres. action `query`: run read-only SQL (5 s timeout, max 500 rows). " +
-        "action `connection`: create a temporary connection string valid for 1 hour (give it to the user only if they asked). " +
-        "action `export`: download a pg_dump (custom format) to `output` on this machine.",
+        "Read the project's Postgres. action `query`: run read-only SQL (5 s timeout, max 500 rows). " +
+        "action `tables`: list tables with row counts and sizes. Temporary credentials come from db_connection; dumps from db_export.",
       inputSchema: {
         project: projectArg,
-        action: z.enum(["query", "connection", "export"]),
+        action: z.enum(["query", "tables"]),
         sql: z.string().optional().describe("Required for action=query."),
-        output: z.string().optional().describe("File path for action=export, e.g. ./backup.dump."),
       },
+      annotations: READ,
     },
-    wrap("db", async (args: { project?: string; action: "query" | "connection" | "export"; sql?: string; output?: string }) => {
+    wrap("db", async (args: { project?: string; action: "query" | "tables"; sql?: string }) => {
       const client = await deps.getClient();
       const slug = await slugFor(args.project);
-      if (args.action === "query") {
-        if (!args.sql) return fail({ status: "failed", stage: "db", code: "invalid_arguments", cause: "action=query needs `sql`.", fix: "Pass sql, e.g. \"select count(*) from users\".", retryable: false });
-        return ok(await client.dbQuery(slug, args.sql));
-      }
-      if (args.action === "connection") return ok(await client.dbConnection(slug), { redact: false });
+      if (args.action === "tables") return projectRequest(slug, "GET", "/db/tables");
+      if (!args.sql) return fail({ status: "failed", stage: "db", code: "invalid_arguments", cause: "action=query needs `sql`.", fix: "Pass sql, e.g. \"select count(*) from users\".", retryable: false });
+      return ok(await client.dbQuery(slug, args.sql));
+    }),
+  );
+
+  server.registerTool(
+    "db_connection",
+    {
+      title: "Create a database connection string",
+      description: "Create temporary Postgres credentials for the project (a new login valid 1 hour, with the app's database permissions) and return the connection string. The result is a credential.",
+      inputSchema: { project: projectArg },
+      annotations: WRITE,
+    },
+    wrap("db", async (args: { project?: string }) => {
+      const client = await deps.getClient();
+      return ok(await client.dbConnection(await slugFor(args.project)), { redact: false });
+    }),
+  );
+
+  server.registerTool(
+    "db_export",
+    {
+      title: "Export the database to a file",
+      description: "Download a pg_dump (custom format) of the project's Postgres and write it to `output` on this machine (default ./<project>.dump; an existing file at that path is overwritten). Returns the path and size.",
+      inputSchema: {
+        project: projectArg,
+        output: z.string().optional().describe("File path to write, e.g. ./backup.dump."),
+      },
+      annotations: WRITE,
+    },
+    wrap("db", async (args: { project?: string; output?: string }) => {
+      const client = await deps.getClient();
+      const slug = await slugFor(args.project);
       const out = resolve(cwd(), args.output ?? `${slug}.dump`);
       const bytes = await downloadTo(await client.dbExport(slug), out);
       return ok({ project: slug, path: out, bytes });
@@ -329,12 +375,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "domain_add",
     {
       title: "Add custom domain",
-      description: "Attach a custom domain (e.g. app.example.com) to a project's service. Returns the exact DNS record the user must create at their DNS provider; TLS is issued automatically once DNS resolves.",
+      description: "Attach a custom domain (e.g. app.example.com) to a project's service. Returns the exact DNS record to create at the domain's DNS provider; TLS is issued automatically once DNS resolves.",
       inputSchema: {
         project: projectArg,
         hostname: z.string().min(3).describe("Fully qualified hostname, e.g. \"www.example.com\"."),
         service: z.string().optional().describe("Service to route to; default is the project's primary public service."),
       },
+      annotations: WRITE,
     },
     wrap("domain", async (args: { project?: string; hostname: string; service?: string }) => {
       const client = await deps.getClient();
@@ -347,13 +394,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       title: "Destroy project",
       description:
-        "Permanently delete a project, all its services AND its data (databases, files). Two steps: call without `confirm_token` to get one, " +
-        "then ask the user to explicitly confirm deleting the named project, and only then call again with the `confirm_token`. Never do the second call without the user's explicit approval.",
+        "Permanently delete a project, all its services AND its data (databases, files). Two steps: a call without `confirm_token` deletes nothing and returns one " +
+        "(valid about 10 minutes); a call with that `confirm_token` performs the deletion.",
       inputSchema: {
         project: z.string().regex(SLUG_RE).describe("Project slug to delete (required, never inferred)."),
         confirm_token: z.string().optional(),
       },
-      annotations: { destructiveHint: true },
+      annotations: WRITE,
     },
     wrap("return", async (args: { project: string; confirm_token?: string }) => {
       const client = await deps.getClient();
@@ -362,7 +409,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return ok({
           ...res,
           project: args.project,
-          next: "Ask the user to confirm deleting this project and all its data. If they agree, call destroy again with this confirm_token.",
+          next: "Nothing has been deleted yet. Calling destroy again with this confirm_token permanently deletes the project and all its data.",
         });
       }
       return ok(res ?? { project: args.project, destroyed: true });
@@ -373,11 +420,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "upgrade",
     {
       title: "Upgrade plan",
-      description: "Return a checkout link to upgrade the user's Rivtor plan (hobby, pro or team). Show the link to the user; they complete payment in the browser.",
+      description: "Create a checkout link for upgrading the user's Rivtor plan (hobby, pro or team). No charge is made by this tool; payment is completed in the browser.",
       inputSchema: {
         plan: z.enum(["hobby", "pro", "team"]).optional().describe("Default hobby."),
         interval: z.enum(["month", "year"]).optional().describe("Default month."),
       },
+      annotations: { ...WRITE, openWorldHint: true },
     },
     wrap("limits", async (args: { plan?: string; interval?: string }) => {
       const client = await deps.getClient();
@@ -391,7 +439,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: "List projects",
       description: "List the user's Rivtor projects with their URLs and status.",
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     wrap("return", async () => {
       const client = await deps.getClient();

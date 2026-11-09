@@ -45,7 +45,8 @@ which server is connected before calling:
 | --- | --- | --- |
 | `deploy` source | `project` (required) + one of `git_url` (+`ref`), `starter`, `files` | `path` (folder), optional `project` |
 | `env_set` values | `set: {KEY: value}` | `vars: {KEY: value}` |
-| `db` actions | `query`, `tables`, `connection`, `export_url` | `query`, `connection`, `export` (+`output`) |
+| `db` actions | `query`, `tables`, `export_url` | `query`, `tables` |
+| DB credentials / dump | `db_connection` | `db_connection`, `db_export` (+`output`) |
 
 Never inline a local folder into remote `files` (2 MB cap); use the local server or
 `npx -y rivtor deploy <path>` instead. Full arguments and CLI flags:
@@ -142,7 +143,7 @@ Investigation tools:
 ## Safety rules
 
 - Never print secret values, tokens or connection strings. Tool results mask them; keep it that
-  way in your replies. Give `db` `connection` output to the user only when they ask for it.
+  way in your replies. Give `db_connection` output to the user only when they ask for it.
 - Never commit `.env` files or put secrets in `deploy.toml` or source. `.env` files are never
   uploaded; send values with `env_set`, `deploy` `env`, or CLI `--env-file`.
 - Do not override Rivtor-managed variables (`DATABASE_URL`, `REDIS_URL`, `S3_*`); they are

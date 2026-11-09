@@ -108,13 +108,23 @@ rebuilding. Only the last 5 releases can be restored.
 
 ### db
 
+Read-only. `{project, action, sql?}`.
+
 | Action | Server | Result |
 | --- | --- | --- |
 | `query` + `sql` | both | Read-only SQL, 5 s timeout, max 500 rows. |
-| `tables` | remote | Tables with row counts and sizes. |
-| `connection` | both | Temporary connection string valid 1 hour. A credential: give it to the user only if asked. |
+| `tables` | both | Tables with row counts and sizes. |
 | `export_url` | remote | 15-minute download link for a `pg_dump` (custom format). |
-| `export` + `output` | local | Downloads a `pg_dump` to `output` on this machine. |
+
+### db_connection
+
+`{project}`. Creates a temporary connection string valid 1 hour. A credential: give it to the user
+only if asked.
+
+### db_export (local)
+
+`{project, output?}`. Downloads a `pg_dump` to `output` on this machine (overwrites an existing
+file).
 
 ### domain_add
 
@@ -162,11 +172,12 @@ schemas. Requires the user's consent.
 `{project, journey}`. Runs a saved plain-language journey with the project's consented test
 account in an isolated browser. No payment, deletion or non-login writes.
 
-### import, import_cutover, import_undo
+### import, import_status, import_cutover, import_undo
 
 Move an app from Vercel, Render, Railway, Heroku or Docker Compose. `import` actions: `scan`
-(default), `status`, `approve`, `deploy`, `copy`, `sync`; each non-scan step needs `id` and a
+(default), `approve`, `deploy`, `copy`, `sync`; each non-scan step needs `id` and a
 fresh revision-bound `approval` (`expectedRevision`, `planDigest`, `approve: true`).
+`import_status` `{project, id}` reads progress (poll until `operation` is absent).
 `import_cutover` switches DNS; `import_undo` restores DNS within seven days and needs
 `acknowledgeDnsOnlyUndo: true`. The source host is never deleted. Ask the user before every
 approval and never read provider credentials from local files.

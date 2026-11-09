@@ -1,12 +1,13 @@
 {
   "name": "rivtor",
-  "version": "0.4.0",
-  "description": "Deploy and operate apps on Rivtor from your coding agent: deploy, read verified results, fix failures from structured errors, manage secrets, logs, databases, domains and rollbacks.",
+  "version": "0.5.0",
+  "description": "Deploy and operate apps on Rivtor from your coding agent: the Rivtor MCP server (OAuth sign-in) plus the Rivtor skill to deploy, read verified results, fix failures from structured errors, and manage secrets, logs, databases, domains and rollbacks.",
   "author": {
     "name": "Rivtor",
     "url": "https://rivtor.com"
   },
   "homepage": "https://rivtor.com/docs/skills",
+  "privacyPolicyUrl": "https://rivtor.com/privacy",
   "repository": "https://github.com/shyamolkonwar/rivtor-cli",
   "license": "MIT",
   "keywords": [

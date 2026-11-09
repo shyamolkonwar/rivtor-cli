@@ -1,6 +1,7 @@
 {
   "name": "rivtor",
-  "version": "0.4.0",
+  "version": "0.5.0",
+  "mcpName": "com.rivtor/rivtor",
   "description": "Deploy any app with one call. CLI + MCP server for Rivtor.",
   "keywords": [
     "rivtor",

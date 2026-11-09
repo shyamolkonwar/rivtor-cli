@@ -9,7 +9,7 @@
     {
       "name": "rivtor",
       "source": "./plugins/rivtor",
-      "description": "Deploy and operate apps on Rivtor from your coding agent: deploy, read verified results, fix failures from structured errors, manage secrets, logs, databases, domains and rollbacks.",
+      "description": "Deploy and operate apps on Rivtor from your coding agent: the Rivtor MCP server (OAuth sign-in) plus the Rivtor skill to deploy, read verified results, fix failures from structured errors, and manage secrets, logs, databases, domains and rollbacks.",
       "author": {
         "name": "Rivtor",
         "url": "https://rivtor.com"

@@ -31,6 +31,28 @@ describe("MCP server", () => {
     expect(Object.keys(deploy.inputSchema.properties ?? {})).toEqual(expect.arrayContaining(["path", "project", "dry_run", "env"]));
   });
 
+  it("every tool has a title and exactly one of readOnlyHint / destructiveHint (directory requirement)", async () => {
+    const { client } = await connect(() => json({}));
+    const { tools } = await client.listTools();
+    const readOnly = ["db", "issues", "list_projects", "logs", "status", "verify", "verify_journey", "import_status"];
+    for (const t of tools) {
+      expect(t.name.length, t.name).toBeLessThanOrEqual(64);
+      expect(t.title?.length ?? 0, t.name).toBeGreaterThan(2);
+      const ro = t.annotations?.readOnlyHint === true;
+      const destructive = t.annotations?.destructiveHint === true;
+      expect(ro !== destructive, `${t.name}: readOnlyHint=${ro} destructiveHint=${destructive}`).toBe(true);
+      expect(ro, t.name).toBe(readOnly.includes(t.name));
+      expect(t.description, t.name).not.toMatch(/\b(ask the user|tell the user|give (it|the link) to the user|on the user's behalf|you must|you rarely|always call|never call)\b/i);
+    }
+  });
+
+  it("db tables, db_connection and db_export are separate tools", async () => {
+    const { client, calls } = await connect(() => json({ tables: [] }));
+    expect((await client.callTool({ name: "db", arguments: { project: "shop", action: "tables" } })).isError).toBeFalsy();
+    expect(calls[0].url).toBe("https://api.test/v1/projects/shop/db/tables");
+    expect((await client.callTool({ name: "db", arguments: { project: "shop", action: "connection" } })).isError).toBe(true);
+  });
+
   it("status proxies to the REST API", async () => {
     const { client, calls } = await connect(() => json({ slug: "shop", services: [] }));
     const res = await client.callTool({ name: "status", arguments: { project: "shop" } });
@@ -58,7 +80,7 @@ describe("MCP server", () => {
   it("forwards import status without approving or deploying", async () => {
     const { client, calls } = await connect(() => json({ state: "planned" }));
     const id = "a1234567-1234-4234-8234-123456789012";
-    const response = await client.callTool({ name: "import", arguments: { project: "shop", action: "status", id } });
+    const response = await client.callTool({ name: "import_status", arguments: { project: "shop", id } });
     expect(response.isError).toBeFalsy();
     expect(calls[0].url).toBe(`https://api.test/v1/projects/shop/imports/${id}`);
     expect(calls[0].method).toBe("GET");

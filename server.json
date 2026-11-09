@@ -1,0 +1,53 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.rivtor/rivtor",
+  "title": "Rivtor",
+  "description": "Deploy full-stack apps (frontend, backend, Postgres, Redis) from your agent and get live URLs.",
+  "version": "1.1.0",
+  "websiteUrl": "https://rivtor.com",
+  "repository": {
+    "url": "https://github.com/shyamolkonwar/rivtor-cli",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://rivtor.com/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.rivtor.com/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "rivtor",
+      "version": "0.5.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "RIVTOR_TOKEN",
+          "description": "Rivtor API token (rvt_...) from https://rivtor.com/dashboard/tokens. Optional if you have run `npx rivtor login`.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

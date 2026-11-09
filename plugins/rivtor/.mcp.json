@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rivtor": {
+      "type": "http",
+      "url": "https://api.rivtor.com/mcp"
+    }
+  }
+}
