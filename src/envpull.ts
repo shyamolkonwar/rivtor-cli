@@ -1,8 +1,8 @@
 // `rivtor env pull`: write the project's env vars to a local file (.env.local / .env).
 // Values go only into the file (mode 0600); the CLI prints counts, never values.
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 export interface EnvExport {
   project: string;
@@ -89,5 +89,19 @@ export async function writeEnvPull(
     throw new EnvFileExistsError(
       `${path} already exists. Re-run with --force to replace it (its current contents are not merged).`,
     );
-  await writeFile(path, renderEnvFile(res), { mode: 0o600 });
+  // Never write through a symlink (it could point at a file outside the project).
+  const st = await lstat(path).catch(() => null);
+  if (st?.isSymbolicLink())
+    throw new Error(`${path} is a symbolic link; remove it, then run rivtor env pull again.`);
+  // Temp file (0600, exclusive) in the same directory, then rename: the result is always a fresh
+  // regular 0600 file, even when --force replaces one with looser permissions.
+  const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    await writeFile(tmp, renderEnvFile(res), { mode: 0o600, flag: "wx" });
+    await chmod(tmp, 0o600);
+    await rename(tmp, path);
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
 }

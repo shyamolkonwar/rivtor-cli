@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import {
   ensureGitignore,
   quoteEnvValue,
   renderEnvFile,
+  writeEnvPull,
   type EnvExport,
 } from "./envpull.js";
 import { json, makeTree } from "./test/helpers.js";
@@ -72,6 +73,25 @@ describe("env pull helpers", () => {
     expect(await readFile(join(fresh, ".gitignore"), "utf8")).toBe(
       "# local env files (rivtor env pull)\n.env*\n",
     );
+  });
+});
+
+describe("env pull file writing", () => {
+  it("never writes through a symlink", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rv-envpull-link-"));
+    const target = join(dir, "elsewhere.txt");
+    await writeFile(target, "keep me");
+    await symlink(target, join(dir, ".env"));
+    await expect(writeEnvPull(join(dir, ".env"), exported, true)).rejects.toThrow(/symbolic link/);
+    expect(await readFile(target, "utf8")).toBe("keep me");
+  });
+  it("--force leaves a fresh 0600 file even over a world-readable one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rv-envpull-mode-"));
+    const path = join(dir, ".env");
+    await writeFile(path, "OLD=1\n", { mode: 0o644 });
+    await writeEnvPull(path, exported, true);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(parseEnvFile(await readFile(path, "utf8")).NEXT_PUBLIC_NAME).toBe("My Shop #1");
   });
 });
 
