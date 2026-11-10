@@ -180,6 +180,9 @@ A failed migration stops the release; the previous release keeps serving.
 | `nothing_to_roll_back` | rollback | Deploy at least twice, or pass a `release_id`. |
 | `release_not_found`, `release_expired`, `release_not_usable` | rollback | Pick a newer release that was live; only the last 5 can be restored. |
 | `invalid_confirm_token` | return | Call `destroy` without a token again for a fresh one (valid about 10 minutes). |
+| `approval_required` | auth | Status `needs_approval`: give the user `approval.url`; after they approve, repeat the call with the `approval_token` they paste back (single use, 15 minutes). |
+| `token_scope` | auth | The token's scope or project limit doesn't allow this call. The user creates a token with the scope (`read`, `deploy`, `admin`) or project named in `fix`. |
+| `session_required` | auth | Approvals are decided by the user in the browser, never with an API token. |
 | `verify_sleeping` | return | Request the app URL to wake it, then `verify`. |
 | `verify_plan_missing` | return | Deploy once, then `verify`. |
 | `client_error`, `cli_error` | any | Local client problem; retry, or run the equivalent `rivtor` CLI command to see details. |

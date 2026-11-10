@@ -40,6 +40,8 @@ export interface DeployOptions {
   incremental?: boolean;
   /** Skip post-deploy verification only when explicitly false. */
   verify?: boolean;
+  /** Token of an approved destructive migration (a previous deploy returned needs_approval). */
+  approvalToken?: string;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -123,6 +125,7 @@ export async function runDeploy(client: ApiClient, opts: DeployOptions): Promise
         env: opts.env,
         clean: opts.clean,
         verify: opts.verify,
+        approvalToken: opts.approvalToken,
       });
     } finally {
       await pack.cleanup();
@@ -213,6 +216,7 @@ async function incrementalUpload(
       env: opts.env,
       clean: opts.clean,
       verify: opts.verify,
+      approvalToken: opts.approvalToken,
     });
     return {
       created,
@@ -287,7 +291,7 @@ export async function waitForDeployment(
 
     if (dep.terminal) {
       if (dep.result) return dep.result;
-      const status = dep.status === "live" || dep.status === "needs_input" ? dep.status : "failed";
+      const status = dep.status === "live" || dep.status === "needs_input" || dep.status === "needs_approval" ? dep.status : "failed";
       return {
         status,
         deploymentId,

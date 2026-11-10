@@ -101,8 +101,9 @@ export function registerDeploy(program: Command): void {
     .option("--no-wait", "start the deployment and exit without waiting")
     .option("--env-file <file>", "send variables from a dotenv file with this deploy")
     .option("--clean", "rebuild every service from scratch, without build or dependency caches")
+    .option("--approval-token <token>", "token from an approved destructive migration (after a deploy returned needs approval)")
     .action(
-      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string; clean?: boolean; verify: boolean }) => {
+      action(async (path: string, opts: { project?: string; dryRun?: boolean; json?: boolean; wait: boolean; envFile?: string; clean?: boolean; verify: boolean; approvalToken?: string }) => {
         const client = await getClient();
         let env: Record<string, string> | undefined;
         if (opts.envFile) {
@@ -121,6 +122,7 @@ export function registerDeploy(program: Command): void {
           env,
           clean: opts.clean,
           verify: opts.verify,
+          approvalToken: opts.approvalToken,
           onProgress: progress?.handle,
         });
 

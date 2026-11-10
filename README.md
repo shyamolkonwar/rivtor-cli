@@ -91,12 +91,14 @@ Report pages and screenshots require sign-in and project membership. Sharing a r
 | `rivtor env set K=V [K2=V2 ...] [--service]`                                                      | Set env vars and secrets (services restart; no rebuild)           |
 | `rivtor env rm K [K2 ...] [--service]`                                                            | Remove env vars                                                   |
 | `rivtor env ls`                                                                                   | List env vars (values masked)                                     |
+| `rivtor env pull [--file <f>] [--production] [--include-secrets] [--force]`                       | Write env vars to `.env.local` / `.env` (counts printed, never values) |
 | `rivtor rollback [releaseId]`                                                                     | Roll back to the previous release, or to a specific one           |
 | `rivtor db query "<sql>"`                                                                         | Run read-only SQL                                                 |
 | `rivtor db url`                                                                                   | Get a temporary connection string (valid for 1 hour)              |
+| `rivtor db connect [--port 54329]`                                                                | Authenticated tunnel to the project's Postgres on localhost       |
 | `rivtor db export -o backup.dump`                                                                 | Download a `pg_dump` in custom format                             |
 | `rivtor domain add <hostname> [--service]`                                                        | Attach a custom domain and print the DNS record to create         |
-| `rivtor destroy [project]`                                                                        | Delete a project and all its data; you confirm by typing the slug |
+| `rivtor destroy [project] [--approval-token <rva_...>]`                                           | Delete a project and all its data (API keys: after your approval) |
 | `rivtor upgrade [hobby\|pro\|team] [--interval month\|year]`                                      | Open a checkout link                                              |
 | `rivtor mcp`                                                                                      | Run the MCP server over stdio                                     |
 | `rivtor skills install [--target claude\|codex\|cursor\|all] [--project]`                         | Install the Rivtor agent skill                                    |
@@ -154,6 +156,30 @@ env = { RIVTOR_TOKEN = "rvt_..." }
 ### Remote MCP (no local install)
 
 Agents that don't need to upload files from disk can connect to `https://api.rivtor.com/mcp` with the header `Authorization: Bearer rvt_...`. The remote `deploy` tool accepts a git URL, a starter template or inline files.
+
+
+## Run it locally against your Rivtor database
+
+```bash
+npx rivtor env pull          # writes .env.local (Next.js / Vite) or .env; adds .env* to .gitignore
+npx rivtor db connect        # keep running: tunnel to the project's Postgres on localhost:54329
+npm run dev                  # DATABASE_URL in the env file points at localhost:54329
+```
+
+`env pull` writes a local-safe set by default: `DATABASE_URL` is a temporary login (valid 1 hour; run
+`env pull --force` again for a new one) through the tunnel, never the database's own address. Redis
+runs on Rivtor's private network and is left out. Payment and provider secrets (names with `SECRET`,
+`PRIVATE`, `TOKEN`, `PASSWORD`, `WEBHOOK`, or ending in `_KEY`) are left out unless you pass
+`--include-secrets`; `--production` writes production values (database passwords left out unless
+`--include-secrets`). An existing file is never merged: `env pull` refuses to replace it without
+`--force`. `db connect` needs Node.js 22+.
+
+## Token scopes and approvals
+
+Tokens have a scope: `read` (status, logs, read-only database), `deploy` (the default for new tokens:
+also deploy, env, rollback, domains) or `admin` (everything). They can be limited to one project and
+given an expiry. `destroy` with any API token also needs your approval: the first call prints an
+approval link; approve in the browser, then run `rivtor destroy <project> --approval-token <token>`.
 
 ## Agent skill
 

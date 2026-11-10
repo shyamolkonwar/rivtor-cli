@@ -1,5 +1,6 @@
 import type { AgentError, DeployResult } from "./shared.js";
 import { NOT_LOGGED_IN_MESSAGE, TOKENS_URL } from "./constants.js";
+import type { EnvExport } from "./envpull.js";
 
 type Stage = AgentError["stage"];
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -204,7 +205,7 @@ export class ApiClient {
 
   createDeployment(
     slug: string,
-    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean },
+    input: { source: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean; approvalToken?: string },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const form = new FormData();
@@ -212,6 +213,7 @@ export class ApiClient {
     form.set("wait", String(input.wait));
     if (input.clean) form.set("clean", "true");
     if (input.verify !== undefined) form.set("verify", String(input.verify));
+    if (input.approvalToken) form.set("approval_token", input.approvalToken);
     if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
     form.set("source", input.source, "source.tar.gz");
     return this.request("POST", `/v1/projects/${enc(slug)}/deployments`, { form, stage: "upload", signal });
@@ -225,7 +227,7 @@ export class ApiClient {
   /** Deploy an uploaded manifest; `blobs` (tar.gz of the missing files, named by hash) rides along. */
   createManifestDeployment(
     slug: string,
-    input: { manifestId: string; blobs?: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean },
+    input: { manifestId: string; blobs?: Blob; dryRun: boolean; wait: boolean; env?: Record<string, string>; clean?: boolean; verify?: boolean; approvalToken?: string },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const path = `/v1/projects/${enc(slug)}/deployments`;
@@ -237,6 +239,7 @@ export class ApiClient {
           wait: input.wait,
           ...(input.clean ? { clean: true } : {}),
           ...(input.verify !== undefined ? { verify: input.verify } : {}),
+          ...(input.approvalToken ? { approval_token: input.approvalToken } : {}),
           ...(input.env && Object.keys(input.env).length > 0 ? { env: input.env } : {}),
         },
         stage: "upload",
@@ -249,6 +252,7 @@ export class ApiClient {
     form.set("wait", String(input.wait));
     if (input.clean) form.set("clean", "true");
     if (input.verify !== undefined) form.set("verify", String(input.verify));
+    if (input.approvalToken) form.set("approval_token", input.approvalToken);
     if (input.env && Object.keys(input.env).length > 0) form.set("env", JSON.stringify(input.env));
     form.set("blobs", input.blobs, "blobs.tar.gz");
     return this.request("POST", path, { form, stage: "upload", signal });
@@ -293,6 +297,22 @@ export class ApiClient {
     return this.request("POST", `/v1/projects/${enc(slug)}/db/connection`, { json: {}, stage: "db" });
   }
 
+  dbSnapshots(slug: string): Promise<unknown> {
+    return this.request("GET", `/v1/projects/${enc(slug)}/db/snapshots`, { stage: "db" });
+  }
+
+  /** Overwrites the database with a snapshot; the first call returns needs_approval (HTTP 409). */
+  dbRestore(slug: string, input: { snapshotId?: string; timestamp?: string; approvalToken?: string }): Promise<unknown> {
+    return this.request("POST", `/v1/projects/${enc(slug)}/db/restore`, {
+      json: {
+        ...(input.snapshotId ? { snapshot_id: input.snapshotId } : {}),
+        ...(input.timestamp ? { timestamp: input.timestamp } : {}),
+        ...(input.approvalToken ? { approval_token: input.approvalToken } : {}),
+      },
+      stage: "db",
+    });
+  }
+
   dbExport(slug: string): Promise<Response> {
     return this.request<Response>("GET", `/v1/projects/${enc(slug)}/db/export`, { raw: true, stage: "db" });
   }
@@ -301,8 +321,21 @@ export class ApiClient {
     return this.request("POST", `/v1/projects/${enc(slug)}/domains`, { json: { hostname, service }, stage: "domain" });
   }
 
-  destroy(slug: string, confirmToken?: string): Promise<Record<string, unknown>> {
-    return this.request("DELETE", `/v1/projects/${enc(slug)}`, { query: { confirm: confirmToken } });
+  /** Dashboard-style confirm token, or (API keys) the one-time approval token from the approval page. */
+  destroy(slug: string, confirmToken?: string, approvalToken?: string): Promise<Record<string, unknown>> {
+    return this.request("DELETE", `/v1/projects/${enc(slug)}`, { query: { confirm: confirmToken }, ...(approvalToken ? { json: { approval_token: approvalToken } } : {}) });
+  }
+
+  /** Decrypted env vars for `rivtor env pull` (write them to a file; never print them). */
+  envExport(slug: string, opts: { set: "local" | "production"; includeSecrets?: boolean; service?: string; port?: number }): Promise<EnvExport> {
+    return this.request("GET", `/v1/projects/${enc(slug)}/env/export`, {
+      query: { set: opts.set, include_secrets: opts.includeSecrets ? 1 : undefined, service: opts.service, port: opts.port },
+      stage: "env",
+    });
+  }
+
+  projectAudit(slug: string, limit?: number): Promise<unknown> {
+    return this.request("GET", `/v1/projects/${enc(slug)}/audit`, { query: { limit } });
   }
 
   checkout(input: { plan: string; interval?: string; provider?: string; currency?: string }): Promise<Record<string, unknown>> {
@@ -316,7 +349,7 @@ function enc(s: string): string {
 
 // ---- response normalisation (the API is evolving; be liberal in what we accept) ----------
 
-const TERMINAL = new Set(["live", "failed", "needs_input", "cancelled", "canceled", "error"]);
+const TERMINAL = new Set(["live", "failed", "needs_input", "needs_approval", "cancelled", "canceled", "error"]);
 
 export interface NormalizedDeployment {
   id: string;
@@ -331,7 +364,7 @@ export function looksLikeDeployResult(v: unknown): v is DeployResult {
   const o = v as Record<string, unknown>;
   return (
     typeof o.status === "string" &&
-    ["live", "failed", "needs_input"].includes(o.status) &&
+    ["live", "failed", "needs_input", "needs_approval"].includes(o.status) &&
     (typeof o.deploymentId === "string" || "urls" in o || "error" in o)
   );
 }

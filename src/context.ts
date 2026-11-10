@@ -59,7 +59,7 @@ export function action<A extends unknown[]>(fn: (...args: A) => Promise<number |
       if (agentError) {
         if (json) process.stdout.write(JSON.stringify(agentError, null, 2) + "\n");
         else process.stderr.write(formatAgentError(agentError) + "\n");
-        process.exitCode = agentError.status === "needs_input" ? EXIT.NEEDS_INPUT : EXIT.FAILED;
+        process.exitCode = agentError.status === "needs_input" || agentError.status === "needs_approval" ? EXIT.NEEDS_INPUT : EXIT.FAILED;
         return;
       }
       if ((err as { code?: string })?.code === "ABORT") {

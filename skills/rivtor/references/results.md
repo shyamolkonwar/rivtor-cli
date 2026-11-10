@@ -49,7 +49,7 @@ Every failure uses this shape, on its own (tool error) or as `DeployResult.error
 
 | Field | Meaning |
 | --- | --- |
-| `status` | `failed` or `needs_input`. |
+| `status` | `failed`, `needs_input` or `needs_approval`. |
 | `stage` | `upload`, `detect`, `plan`, `provision`, `build`, `migrate`, `release`, `return`, or `auth`, `limits`, `env`, `domain`, `db`, `rollback`. |
 | `service` | The failing service, when known. |
 | `code` | Stable machine code. See [errors.md](errors.md). |
@@ -58,6 +58,7 @@ Every failure uses this shape, on its own (tool error) or as `DeployResult.error
 | `fix` | The concrete change to make. Build/runtime fixes end with "then call deploy again". |
 | `retryable` | `false`: the same call fails again unless something changes. |
 | `missing[]` | For `needs_input`: `{name, service, usedIn}`. |
+| `approval` | For `needs_approval`: `{id, action, project, summary, url, expiresAt}`. |
 | `upgrade` | When the fix is a plan upgrade: `{trigger, message, plan, url}`. |
 | `logTail[]` | Last relevant log lines, for `unknown` errors. |
 | `docs` | Link to the error's docs entry. |
@@ -121,5 +122,8 @@ Production re-check interval by plan: Free none, Hobby daily, Pro every 15 minut
   `{dry_run: true, project, created, plan, dashboardUrl}`.
 - Remote `deploy` with `wait: false`: `{status: "queued", project, deploymentId, next}`.
 - Remote `deploy` after 15 minutes: `{status: "in_progress", project, deploymentId, fix}`.
-- `destroy` first call: a `confirm_token` plus `next` instructions. Second call: deletion result.
+- `destroy` first call (API key): an AgentError with status `needs_approval` and `approval`
+  `{id, action, project, summary, url, expiresAt}`. Call with `approval_token`: deletion result.
+- `untrusted: true` and `untrustedNote` lead results that carry application output (logs,
+  verification and issue text, deploy `logTail`); the rest of the shape is unchanged.
 - `env_set`: key names set/removed and whether services restarted. Never the values.

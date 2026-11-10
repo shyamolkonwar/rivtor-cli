@@ -160,11 +160,19 @@ export function registerProject(program: Command): void {
     .description("Delete a project, its services and ALL its data")
     .argument("[project]", "project slug")
     .option("--confirm <slug>", "non-interactive confirmation: must equal the project slug")
+    .option("--approval-token <token>", "one-time token from the approval page (API keys need a human approval to destroy)")
     .option("--json", "print JSON")
     .action(
-      action(async (project: string | undefined, opts: { confirm?: string; json?: boolean }) => {
+      action(async (project: string | undefined, opts: { confirm?: string; approvalToken?: string; json?: boolean }) => {
         const slug = await projectSlug(project);
         const client = await getClient();
+        if (opts.approvalToken) {
+          const done = await client.destroy(slug, undefined, opts.approvalToken);
+          if (opts.json) return printJson(done ?? { project: slug, destroyed: true });
+          process.stdout.write(`${pc.green("✓")} Destroyed ${pc.bold(slug)}\n`);
+          return;
+        }
+        // With an API key this returns needs_approval (printed with the approval link); re-run with --approval-token.
         const first = await client.destroy(slug);
         const token = str(first.confirm_token ?? first.confirmToken);
         if (!token) throw new CliError("The API did not return a confirmation token; nothing was deleted.");

@@ -3,7 +3,15 @@
 
 export type Verdict = "working" | "partly_working" | "broken";
 export type CheckGroup =
-  "reachability" | "pages" | "api" | "data" | "config" | "security" | "journey";
+  | "reachability"
+  | "pages"
+  | "api"
+  | "data"
+  | "config"
+  | "security"
+  | "journey"
+  /** network requests the browser made, streaming routes and websockets (Build Now items 1, 2) */
+  | "routing";
 export type IssueSeverity = "critical" | "warning" | "info";
 
 /** One problem found by a check, written for the agent to act on. */
@@ -30,6 +38,7 @@ export interface VerifyIssue {
 
 export type VerifyFixAction =
   | { kind: "set_env_url"; service: string; key: string; value: string }
+  | { kind: "path_rule"; service: string; prefix: string; target: string }
   | { kind: "cors_origin"; service: string; origin: string }
   | { kind: "security_headers"; service: string };
 
@@ -83,6 +92,11 @@ export interface VerificationReport {
   pages?: VerifyPageResult[];
   /** release blocked and previous release kept serving (verdict broken or exposed secret) */
   blocked?: boolean;
+  /**
+   * Layer 3: path rules learned from the browser's requests (a same-origin call the frontend
+   * 404s that a project backend answers). The deploy applies them and verifies once more.
+   */
+  learnedRoutes?: import("./wiring.js").PathRule[];
   createdAt: string;
 }
 

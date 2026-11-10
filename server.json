@@ -3,7 +3,7 @@
   "name": "com.rivtor/rivtor",
   "title": "Rivtor",
   "description": "Deploy full-stack apps (frontend, backend, Postgres, Redis) from your agent and get live URLs.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "websiteUrl": "https://rivtor.com",
   "repository": {
     "url": "https://github.com/shyamolkonwar/rivtor-cli",
@@ -28,7 +28,7 @@
     {
       "registryType": "npm",
       "identifier": "rivtor",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

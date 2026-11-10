@@ -5,7 +5,7 @@ import { EXIT } from "./constants.js";
 
 export function exitCodeFor(status: string | undefined): number {
   if (status === "live") return EXIT.OK;
-  if (status === "needs_input") return EXIT.NEEDS_INPUT;
+  if (status === "needs_input" || status === "needs_approval") return EXIT.NEEDS_INPUT;
   return EXIT.FAILED;
 }
 
@@ -81,13 +81,15 @@ export function formatMissingSecrets(missing: MissingSecret[], project?: string)
 }
 
 export function formatAgentError(err: AgentError): string {
-  const head = err.status === "needs_input" ? pc.yellow("! Needs input") : pc.red("✗ Failed");
+  const head = err.status === "needs_input" ? pc.yellow("! Needs input") : err.status === "needs_approval" ? pc.yellow("! Needs approval") : pc.red("✗ Failed");
   const where = [err.stage, err.service].filter(Boolean).join(" · ");
   const out = [`${head}${where ? pc.dim(` (${where})`) : ""} ${pc.dim(`[${err.code}]`)}`];
   out.push(`  ${pc.bold("cause")}  ${err.cause}`);
   if (err.file) out.push(`  ${pc.bold("file")}   ${err.file}`);
   out.push(`  ${pc.bold("fix")}    ${err.fix}`);
+  if (err.approval) out.push(`  ${pc.bold("approve")} ${url(err.approval.url)} ${pc.dim(`(expires ${err.approval.expiresAt})`)}`);
   if (err.missing?.length) out.push("", formatMissingSecrets(err.missing));
+  if (err.approval) out.push("", `  ${pc.bold("approve")} ${url(err.approval.url)} ${pc.dim(`(expires ${err.approval.expiresAt})`)}`);
   if (err.upgrade) out.push("", `  ${pc.magenta("↑")} ${err.upgrade.message} ${url(err.upgrade.url)}`);
   if (err.logTail?.length) {
     out.push("", pc.dim("  last log lines:"));
@@ -113,6 +115,7 @@ export function formatDeployResult(r: DeployResult): string {
   const dur = r.durationMs ? pc.dim(` in ${formatDuration(r.durationMs)}`) : "";
   if (r.status === "live") out.push(`${pc.green("✓ Live")}  ${pc.bold(r.project)}${dur}`);
   else if (r.status === "needs_input") out.push(`${pc.yellow("! Needs input")}  ${pc.bold(r.project)}`);
+  else if (r.status === "needs_approval") out.push(`${pc.yellow("! Needs approval")}  ${pc.bold(r.project)}`);
   else out.push(`${pc.red("✗ Deploy failed")}  ${pc.bold(r.project)}${dur}`);
 
   const services = r.services ?? [];

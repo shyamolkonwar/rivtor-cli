@@ -1,6 +1,7 @@
 // Generated from the Rivtor monorepo (packages/shared/src/types.ts). Do not edit here.
 // Shared contracts between detection, control plane, CLI/MCP and dashboard.
 import type { VerificationReport } from "./verify.js";
+import type { ApprovalRequest, DestructiveChange, Integrations, PathRule, WiringFix } from "./wiring.js";
 
 export type ServiceKind = "static" | "web" | "api" | "worker" | "custom";
 export type Runtime = "edge" | "container";
@@ -113,6 +114,21 @@ export interface DeployPlan {
   warnings: string[];
   /** deploy.toml [verify] settings, carried to the verifier */
   verify?: DeployToml["verify"];
+  /** Item 1: path rules on frontend hostnames (frontend -> backend), strongest source wins. */
+  routes?: PathRule[];
+  /**
+   * Item 1: frontend service -> path prefixes it serves itself (Next.js route handlers, pages/api,
+   * SvelteKit +server, Nuxt server/api, Astro endpoints). Never rerouted (ServiceRouting.ownPrefixes).
+   */
+  ownPrefixes?: Record<string, string[]>;
+  /** Item 1: wiring problems found, applied or reported. */
+  wiringFixes?: WiringFix[];
+  /** Items 2, 3, 4, 7: auth / payments / vector / streaming found in code. */
+  integrations?: Integrations;
+  /** Item 5: destructive changes in the migration files of this upload (rows filled at deploy). */
+  destructiveMigrations?: DestructiveChange[];
+  /** Item 7: migration files that create the pgvector extension ("file:line"). */
+  vectorMigrations?: string[];
 }
 
 /** deploy.toml (optional) — overrides detection. */
@@ -141,6 +157,11 @@ export interface DeployToml {
     }
   >;
   ignore?: string[];
+  /**
+   * [routes]: "<frontend>:<prefix>" or "<prefix>" (primary public service) -> target service.
+   * Saved answers to routing questions; strongest rule source.
+   */
+  routes?: Record<string, string>;
   /** [verify]: routes excluded from / added to verified-deploy checks, opt-in browser error script */
   verify?: {
     exclude?: string[];
@@ -162,7 +183,7 @@ export type DeployStage =
 
 /** Every failure returned to agents uses this shape (architecture doc: "Errors written for agents"). */
 export interface AgentError {
-  status: "failed" | "needs_input";
+  status: "failed" | "needs_input" | "needs_approval";
   stage: DeployStage | "auth" | "limits" | "env" | "domain" | "db" | "rollback";
   service?: string;
   code: string; // stable machine code from the known-error library, e.g. "missing_python_module"
@@ -171,6 +192,7 @@ export interface AgentError {
   fix: string;
   retryable: boolean;
   missing?: MissingSecret[]; // for needs_input
+  approval?: ApprovalRequest; // for needs_approval
   upgrade?: UpgradeHint; // when the fix is a plan upgrade
   logTail?: string[]; // last relevant log lines for unknown errors
   docs?: string;
@@ -209,7 +231,7 @@ export interface DataServiceStatus {
 }
 
 export interface DeployResult {
-  status: "live" | "failed" | "needs_input";
+  status: "live" | "failed" | "needs_input" | "needs_approval";
   deploymentId: string;
   project: string;
   urls: Record<string, string>; // service name -> URL
@@ -230,6 +252,15 @@ export interface DeployResult {
    */
   swapMode?: "hot" | "full";
   hotSwap?: HotSwapInfo;
+  /** Item 1: wiring fixes applied or reported for this deploy. */
+  wiring?: WiringFix[];
+  /** Items 3, 4: what to register at OAuth providers / what was registered at payment providers. */
+  integrations?: {
+    auth?: Array<{ service: string; provider: string; callbackUrls: Record<string, string>; notes: string[] }>;
+    payments?: Array<{ service: string; provider: string; endpointUrl: string; events: string[]; mode: "test" | "live"; status: "registered" | "updated" | "skipped" | "failed"; note?: string }>;
+  };
+  /** Item 5: snapshot taken before this deploy's migrations (restore with db restore). */
+  snapshot?: { id: string; takenAt: string; kind: "dump" | "marker" };
 }
 
 /** Details of a hot swap (DeployResult.swapMode = "hot"). */
@@ -243,3 +274,4 @@ export interface HotSwapInfo {
 }
 
 export type * from "./verify.js";
+export type * from "./wiring.js";

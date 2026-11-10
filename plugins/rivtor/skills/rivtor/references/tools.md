@@ -81,6 +81,7 @@ domains, last deployment and the last verification summary. May include an `upgr
 | Argument | Meaning |
 | --- | --- |
 | `deployment_id` | Build/deploy log of that deployment instead of runtime logs. |
+| `kind` | `audit`: the project's audit log (tool calls and changes with the key and agent; owner only). |
 | `service` | One service, e.g. `api`. |
 | `since` | `15m`, `1h`, `2d` or an ISO timestamp. |
 | `level` | `error`, `warn`, `info` (local also accepts `debug`). |
@@ -133,9 +134,10 @@ records the user must create. HTTPS is issued once DNS resolves.
 
 ### destroy
 
-`{project, confirm_token?}`. Deletes the project, its services and all data. First call returns a
-`confirm_token` (valid about 10 minutes). Call again with it only after the user explicitly
-confirms.
+`{project, approval_token?}`. Deletes the project, its services and all data. Needs an `admin`
+key and the user's approval: the first call returns `needs_approval` with `approval.url` (valid 15
+minutes). After the user approves in the browser they paste back a one-time `approval_token`;
+call again with it. (`confirm_token` is the dashboard's flow.)
 
 ### upgrade
 
@@ -197,10 +199,12 @@ Run with `npx rivtor <command>` or a global install. Most commands accept `--jso
 | `rivtor logs [project] [-s <service>] [--since 1h] [--level error] [-n <n>] [--raw] [--build <deploymentId>]` | Runtime logs, or a deployment's build log. |
 | `rivtor env set K=V [K2=V2 ...] [-s <service>]` | Set variables (restart, no rebuild). |
 | `rivtor env rm K [K2 ...] [-s <service>]` / `rivtor env ls` | Remove / list variables (values masked). |
+| `rivtor env pull [-f <file>] [--production] [--include-secrets] [--force]` | Write env vars to `.env.local` / `.env` for local development (secrets left out unless asked; adds `.env*` to `.gitignore`). |
 | `rivtor rollback [releaseId]` | Roll back to the previous or a specific release. |
 | `rivtor db query "<sql>"` / `rivtor db url` / `rivtor db export -o <file>` | Read-only SQL / temporary connection string / `pg_dump`. |
+| `rivtor db connect [--port 54329]` | Authenticated tunnel to the project's Postgres on localhost (Node 22+). |
 | `rivtor domain add <hostname> [-s <service>]` | Attach a domain; prints the DNS record. |
-| `rivtor destroy [project] [--confirm <slug>]` | Delete a project and all data. |
+| `rivtor destroy [project] [--confirm <slug>] [--approval-token <rva_...>]` | Delete a project and all data (API keys: after the user's approval). |
 | `rivtor upgrade [hobby\|pro\|team] [--interval month\|year] [--currency usd\|inr] [--provider stripe\|razorpay] [--no-open]` | Checkout link. |
 | `rivtor verify [project] [--json]` | Re-check the live app. Exit `0` only for `working`. |
 | `rivtor issues [project] [--status open\|resolved\|dismissed\|all] [--severity <s>]` | List issues. |
